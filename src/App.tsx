@@ -15,7 +15,7 @@ const ROLES = [
 ];
 
 const QUESTIONS_TARGET  = 10;
-const OPENROUTER_API_KEY = ""; // Removed for security. Please set your OpenRouter API key.
+const OPENROUTER_API_KEY = import.meta.env.VITE_OPENROUTER_API_KEY;
 const OPENROUTER_MODEL   = "anthropic/claude-sonnet-4-5";
 const STORAGE_KEY        = "sb_candidates_v1";
 
