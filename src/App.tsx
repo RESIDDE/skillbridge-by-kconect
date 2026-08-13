@@ -52,7 +52,7 @@ function tierLabel(t) {
 
 async function loadCandidates() {
   try {
-    const { data, error } = await supabase.from('candidates').select('*').order('created_at', { ascending: false });
+    const { data, error } = await supabase.from('candidates').select('*').eq('published', true).order('created_at', { ascending: false });
     if (error) { console.error("Supabase load error:", error); return []; }
     return (data || []).map(row => ({
       id: row.id,
@@ -71,6 +71,11 @@ async function loadCandidates() {
       improvements: row.improvements,
       summary: row.summary,
       certId: row.cert_id,
+      location: row.location,
+      linkedin: row.linkedin,
+      portfolio: row.portfolio,
+      experience: row.experience,
+      avatarUrl: row.avatar_url,
       date: row.created_at
     }));
   } catch(e) { console.error("Supabase load error:", e); return []; }
@@ -93,10 +98,54 @@ async function saveCandidate(record) {
       improvements: record.improvements,
       summary: record.summary,
       cert_id: record.certId,
+      user_id: record.userId,
+      published: record.published || false,
+      location: record.location,
+      linkedin: record.linkedin,
+      portfolio: record.portfolio,
+      experience: record.experience,
+      avatar_url: record.avatarUrl,
     };
-    const { error } = await supabase.from('candidates').insert([dbRecord]);
+    const { data, error } = await supabase.from('candidates').insert([dbRecord]).select();
+    if (data) return data[0].id;
     if (error) console.error("Supabase save error:", error);
   } catch(e) { console.error("Supabase save error:", e); }
+}
+
+
+async function publishCandidate(id) {
+  try {
+    const { error } = await supabase.from('candidates').update({ published: true }).eq('id', id);
+    if (error) console.error("Supabase publish error:", error);
+  } catch(e) { console.error("Supabase publish error:", e); }
+}
+
+async function loadProfile(userId) {
+  try {
+    const { data, error } = await supabase.from('profiles').select('*').eq('id', userId).single();
+    if (error && error.code !== 'PGRST116') { console.error(error); return null; }
+    return data;
+  } catch(e) { return null; }
+}
+
+async function saveProfile(userId, email, profileData) {
+  try {
+    const { error } = await supabase.from('profiles').upsert({
+      id: userId,
+      email: email,
+      name: profileData.name,
+      phone: profileData.phone,
+      resume_name: profileData.resumeName,
+      resume_text: profileData.resumeText,
+      location: profileData.location,
+      linkedin: profileData.linkedin,
+      portfolio: profileData.portfolio,
+      experience: profileData.experience,
+      avatar_url: profileData.avatarUrl,
+      updated_at: new Date().toISOString()
+    });
+    if (error) console.error(error);
+  } catch(e) { console.error(e); }
 }
 
 /* ──────────────── Certificate Canvas ──────────────── */
@@ -288,26 +337,146 @@ function HomePage({ onApplicant, onCompany }) {
   );
 }
 
+
+async function uploadAvatar(file, userId) {
+  if (!file) return null;
+  if (file.size > 5 * 1024 * 1024) {
+    alert("Image size must be less than 5MB");
+    return null;
+  }
+  
+  const fileExt = file.name.split('.').pop();
+  const fileName = `${userId}-${Math.random()}.${fileExt}`;
+  const filePath = `${fileName}`;
+  
+  const { error: uploadError } = await supabase.storage.from('avatars').upload(filePath, file);
+  if (uploadError) {
+    console.error('Error uploading avatar:', uploadError.message);
+    alert('Failed to upload image. Please ensure the "avatars" bucket is created in Supabase Storage.');
+    return null;
+  }
+  
+  const { data } = supabase.storage.from('avatars').getPublicUrl(filePath);
+  return data.publicUrl;
+}
 /* ══════════════════════════════════════════════════════
    APPLICANT PORTAL  (interview flow)
 ══════════════════════════════════════════════════════ */
 
+
 function ApplicantPortal() {
-  const [step, setStep] = useState("apply");
+  const [session, setSession] = useState(null);
+  const [authMode, setAuthMode] = useState("login");
+  const [authForm, setAuthForm] = useState({ email: "", password: "" });
+  const [authError, setAuthError] = useState("");
+  const [authBusy, setAuthBusy] = useState(false);
+  const [authInit, setAuthInit] = useState(true);
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      setAuthInit(false);
+    });
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+    });
+    return () => subscription.unsubscribe();
+  }, []);
+
+  async function handleAuth(e) {
+    e.preventDefault();
+    setAuthBusy(true); setAuthError("");
+    try {
+      if (authMode === "signup") {
+        const { error } = await supabase.auth.signUp({ email: authForm.email, password: authForm.password });
+        if (error) throw error;
+        setAuthError("Check your email for the confirmation link, or log in if auto-confirm is enabled.");
+      } else {
+        const { error } = await supabase.auth.signInWithPassword({ email: authForm.email, password: authForm.password });
+        if (error) throw error;
+      }
+    } catch(err) {
+      setAuthError(err.message);
+    } finally {
+      setAuthBusy(false);
+    }
+  }
+
+  if (authInit) return <main style={S.main}><div style={S.card}>Loading...</div></main>;
+
+  if (!session) {
+    return (
+      <main style={S.main}>
+        <div style={S.card}>
+          <h2 style={S.cardTitle}>{authMode === "login" ? "Applicant Login" : "Applicant Sign Up"}</h2>
+          <p style={S.cardSub}>Sign in to manage your profile and take certification interviews.</p>
+          <form onSubmit={handleAuth}>
+            <Field label="Email">
+              <input style={S.input} type="email" required value={authForm.email} onChange={e=>setAuthForm(p=>({...p,email:e.target.value}))} />
+            </Field>
+            <Field label="Password">
+              <input style={S.input} type="password" required value={authForm.password} onChange={e=>setAuthForm(p=>({...p,password:e.target.value}))} />
+            </Field>
+            {authError && <div style={{...S.errorBox, background: authError.includes("Check your email") ? "#f0fdf4" : "#fef2f2", color: authError.includes("Check your email") ? "#166534" : "#991b1b"}}>{authError}</div>}
+            <button style={S.primaryBtn} type="submit" disabled={authBusy}>
+              {authBusy ? "Please wait..." : authMode === "login" ? "Sign In" : "Create Account"}
+            </button>
+          </form>
+          <button style={{...S.linkBtn, marginTop: 16}} onClick={() => { setAuthMode(m => m === "login" ? "signup" : "login"); setAuthError(""); }}>
+            {authMode === "login" ? "Don't have an account? Sign up" : "Already have an account? Sign in"}
+          </button>
+        </div>
+      </main>
+    );
+  }
+
+  return <ApplicantDashboard session={session} />;
+}
+
+function ApplicantDashboard({ session }) {
+  const [step, setStep] = useState("dashboard"); // dashboard | apply | interview | scoring | results | certificate
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [form, setForm] = useState({
-    name:"", email:"", phone:"", roleId:"sales",
+    name:"", email: session.user.email, phone:"", roleId:"sales",
     customRole:"", jobSpec:"", resumeName:"", resumeText:"",
+    location: "", linkedin: "", portfolio: "", experience: "", avatarUrl: ""
   });
+  const [avatarUploading, setAvatarUploading] = useState(false);
   const [messages, setMessages] = useState([]);
   const [answerDraft, setAnswerDraft] = useState("");
   const [questionCount, setQuestionCount] = useState(0);
   const [result, setResult] = useState(null);
   const [cert, setCert] = useState(null);
+  const [candidateId, setCandidateId] = useState(null);
+  const [publishedStatus, setPublishedStatus] = useState("unpublished"); // unpublished | publishing | published
   const [emailStatus, setEmailStatus] = useState("");
+  const [profileLoading, setProfileLoading] = useState(true);
+  
   const canvasRef = useRef(null);
   const chatEndRef = useRef(null);
+
+  useEffect(() => {
+    async function initProfile() {
+      const data = await loadProfile(session.user.id);
+      if (data) {
+        setForm(p => ({
+          ...p,
+          name: data.name || "",
+          phone: data.phone || "",
+          resumeName: data.resume_name || "",
+          resumeText: data.resume_text || "",
+          location: data.location || "",
+          linkedin: data.linkedin || "",
+          portfolio: data.portfolio || "",
+          experience: data.experience || "",
+          avatarUrl: data.avatar_url || ""
+        }));
+      }
+      setProfileLoading(false);
+    }
+    initProfile();
+  }, [session]);
 
   useEffect(()=>{ chatEndRef.current?.scrollIntoView({behavior:"smooth"}); },[messages]);
 
@@ -318,14 +487,52 @@ function ApplicantPortal() {
 
   async function handleFile(e) {
     const file = e.target.files?.[0]; if(!file) return;
+    
+    const ext = file.name.split('.').pop().toLowerCase();
+    if (!['pdf', 'doc', 'docx'].includes(ext)) {
+      alert("Resume must be a PDF or Word document (.pdf, .doc, .docx)");
+      return;
+    }
+    
+    if (file.size > 5 * 1024 * 1024) {
+      alert("Resume size must be less than 5MB");
+      return;
+    }
     update("resumeName",file.name);
     try {
-      if(file.type==="text/plain"){ update("resumeText",(await file.text()).slice(0,4000)); }
-      else if(file.name.endsWith(".docx")){
-        const m=await import("mammoth");
+      if(ext === "pdf") {
+        const pdfjsLib = await import("pdfjs-dist");
+        pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
+        const arrayBuffer = await file.arrayBuffer();
+        const pdf = await pdfjsLib.getDocument({data: arrayBuffer}).promise;
+        let text = "";
+        for (let i = 1; i <= Math.min(pdf.numPages, 5); i++) {
+          const page = await pdf.getPage(i);
+          const content = await page.getTextContent();
+          text += content.items.map(item => item.str).join(" ") + "\n";
+        }
+        update("resumeText", text.slice(0, 4000));
+      } else if(ext === "docx" || ext === "doc"){
+        const m = await import("mammoth");
         update("resumeText",((await m.extractRawText({arrayBuffer:await file.arrayBuffer()})).value||"").slice(0,4000));
-      } else update("resumeText","");
-    } catch { update("resumeText",""); }
+      } else {
+        update("resumeText","");
+      }
+    } catch(err) {
+      console.error(err);
+      update("resumeText","");
+    }
+  }
+  
+  async function saveMyProfile() {
+    if(!form.name || !form.phone || !form.avatarUrl || !form.resumeText) {
+      alert("Please ensure your Name, Phone, Profile Photo, and Resume are provided.");
+      return;
+    }
+    setBusy(true);
+    await saveProfile(session.user.id, session.user.email, form);
+    setBusy(false);
+    alert("Profile saved successfully.");
   }
 
   async function callLLM(system, msgs) {
@@ -359,9 +566,18 @@ function ApplicantPortal() {
 
   async function startInterview() {
     setError("");
-    if(!form.name||!form.email||!form.phone||!form.jobSpec){
-      setError("Please fill in your full name, email, phone and job specification."); return;
+    if(!form.name||!form.phone||!form.jobSpec){
+      setError("Please fill in your full name, phone and job specification."); return;
     }
+    if(!form.avatarUrl){
+      setError("Please upload a Profile Photo before taking the interview."); return;
+    }
+    if(!form.resumeText){
+      setError("Please upload your CV/Résumé (PDF or Word) before taking the interview."); return;
+    }
+    // Auto-save profile when starting interview
+    await saveProfile(session.user.id, session.user.email, form);
+    
     setBusy(true); setStep("interview");
     try {
       const text = await callLLM(interviewSystem(),[{role:"user",content:"Begin the interview. Greet the candidate briefly and ask your first question."}]);
@@ -398,27 +614,35 @@ function ApplicantPortal() {
       ].join("\n");
       const parsed = cleanJson(await callLLM(scoringSystem,[{role:"user",content:`Transcript:\n\n${transcript}`}]));
       setResult(parsed);
+      
+      let newCert = null;
       if(parsed.overall_score>=40){
         const issue=new Date(), expiry=new Date(issue);
         expiry.setFullYear(expiry.getFullYear()+1);
-        const certData={
+        newCert={
           certId:genCertId(), name:form.name, email:form.email, roleLabel,
           tier:parsed.tier, overall_score:parsed.overall_score,
           issueDate:fmtDate(issue), expiryDate:fmtDate(expiry),
           issueDateISO:issue.toISOString(), expiryDateISO:expiry.toISOString(),
         };
-        setCert(certData);
-        // ── persist candidate to talent pool ──
-        await saveCandidate({
-          name:form.name, email:form.email, phone:form.phone,
-          roleId:form.roleId, roleLabel, jobSpec:form.jobSpec,
-          resumeText:form.resumeText, resumeName:form.resumeName,
-          overall_score:parsed.overall_score, tier:parsed.tier,
-          competencies:parsed.competencies, strengths:parsed.strengths,
-          improvements:parsed.improvements, summary:parsed.summary,
-          certId:certData.certId
-        });
+        setCert(newCert);
       }
+      
+      // ── persist candidate to talent pool, but unpublished initially ──
+      const insertedId = await saveCandidate({
+        userId: session.user.id,
+        published: false,
+        name:form.name, email:form.email, phone:form.phone,
+        roleId:form.roleId, roleLabel, jobSpec:form.jobSpec,
+        resumeText:form.resumeText, resumeName:form.resumeName,
+        location:form.location, linkedin:form.linkedin, portfolio:form.portfolio, experience:form.experience, avatarUrl:form.avatarUrl,
+        overall_score:parsed.overall_score, tier:parsed.tier,
+        competencies:parsed.competencies, strengths:parsed.strengths,
+        improvements:parsed.improvements, summary:parsed.summary,
+        certId: newCert ? newCert.certId : null
+      });
+      if (insertedId) setCandidateId(insertedId);
+      
       setStep("results");
     } catch(e){ setError("Scoring failed. Please try again."); setStep("interview"); }
   }
@@ -428,12 +652,82 @@ function ApplicantPortal() {
     const a=document.createElement("a");
     a.download=`SkillBridge-${cert.certId}.png`; a.href=c.toDataURL("image/png"); a.click();
   }
+  
+  async function handlePublish() {
+    if (!candidateId) return;
+    setPublishedStatus("publishing");
+    await publishCandidate(candidateId);
+    setPublishedStatus("published");
+  }
+
+  if (profileLoading) return <main style={S.main}><div style={S.card}>Loading profile...</div></main>;
 
   return (
     <main style={S.main}>
+      <div style={{display:"flex", justifyContent:"space-between", marginBottom:20, alignItems:"center", maxWidth:640, width:"100%", margin:"0 auto 20px"}}>
+        <span style={{color:"#6b7280", fontSize:14}}>Logged in as {session.user.email}</span>
+        <button style={S.linkBtn} onClick={()=>supabase.auth.signOut()}>Sign Out</button>
+      </div>
+
+      {step==="dashboard" && (
+        <div style={S.card}>
+          <h2 style={S.cardTitle}>Applicant Dashboard</h2>
+          <p style={S.cardSub}>Complete your profile to prepare for interviews.</p>
+          <Field label="Full Name *">
+            <input style={S.input} value={form.name} onChange={e=>update("name",e.target.value)} placeholder="Jane Doe" />
+          </Field>
+          <Field label="Phone number *">
+            <input style={S.input} value={form.phone} onChange={e=>update("phone",e.target.value)} placeholder="+234 80..." />
+          </Field>
+          <Field label="Location">
+            <input style={S.input} value={form.location} onChange={e=>update("location",e.target.value)} placeholder="e.g., Lagos, Nigeria" />
+          </Field>
+          <Field label="Years of Experience">
+            <input style={S.input} value={form.experience} onChange={e=>update("experience",e.target.value)} placeholder="e.g., 5 years" />
+          </Field>
+          <Field label="LinkedIn URL">
+            <input style={S.input} value={form.linkedin} onChange={e=>update("linkedin",e.target.value)} placeholder="https://linkedin.com/in/..." />
+          </Field>
+          <Field label="Portfolio URL">
+            <input style={S.input} value={form.portfolio} onChange={e=>update("portfolio",e.target.value)} placeholder="https://yourportfolio.com" />
+          </Field>
+
+          <Field label="Profile Photo (Max 5MB)">
+            <input style={S.input} type="file" accept="image/*" onChange={async e => {
+              const file = e.target.files?.[0];
+              if(!file) return;
+              if (file.size > 5 * 1024 * 1024) {
+                alert("Image size must be less than 5MB");
+                return;
+              }
+              setAvatarUploading(true);
+              const url = await uploadAvatar(file, session.user.id);
+              if (url) update("avatarUrl", url);
+              setAvatarUploading(false);
+            }} />
+            {avatarUploading && <span style={{fontSize: 12, color: "#6b7280"}}>Uploading...</span>}
+            {form.avatarUrl && !avatarUploading && <img src={form.avatarUrl} alt="Avatar" style={{width: 48, height: 48, borderRadius: "50%", marginTop: 8, objectFit: "cover"}} />}
+          </Field>
+
+          <Field label="CV / Résumé (Max 5MB) *">
+            <input style={S.input} type="file" accept=".pdf,.doc,.docx" onChange={handleFile} />
+            {form.resumeName && <div style={{fontSize: 12, marginTop: 4, color: "#16a34a"}}>✓ {form.resumeName} loaded</div>}
+          </Field>
+          
+          <div style={{display:"flex", gap:16, marginTop:24}}>
+            <button style={S.secondaryBtn} onClick={saveMyProfile} disabled={busy}>
+              {busy ? "Saving..." : "Save Profile"}
+            </button>
+            <button style={S.primaryBtn} onClick={()=>setStep("apply")}>
+              Take an Interview →
+            </button>
+          </div>
+        </div>
+      )}
+
       {step==="apply" && (
         <ApplyForm form={form} update={update} handleFile={handleFile}
-          onSubmit={startInterview} error={error} busy={busy} />
+          onSubmit={startInterview} error={error} busy={busy} onCancel={()=>setStep("dashboard")} />
       )}
       {step==="interview" && (
         <Interview messages={messages} answerDraft={answerDraft}
@@ -445,7 +739,9 @@ function ApplicantPortal() {
       {step==="results" && result && (
         <Results result={result} cert={cert} roleLabel={roleLabel}
           onViewCert={()=>setStep("certificate")}
-          onRestart={()=>window.location.reload()} />
+          onRestart={()=>setStep("dashboard")}
+          onPublish={handlePublish}
+          publishedStatus={publishedStatus} />
       )}
       {step==="certificate" && cert && (
         <CertificateView cert={cert} canvasRef={canvasRef}
@@ -457,24 +753,16 @@ function ApplicantPortal() {
   );
 }
 
+
 /* ── Apply form ── */
-function ApplyForm({ form, update, handleFile, onSubmit, error, busy }) {
+function ApplyForm({ form, update, handleFile, onSubmit, error, busy, onCancel }) {
   return (
     <div style={S.card}>
       <h2 style={S.cardTitle}>Your Application</h2>
       <p style={S.cardSub}>Fill in your details, upload your CV, and start the AI interview.</p>
 
-      <Field label="Full name *">
-        <input style={S.input} value={form.name} onChange={e=>update("name",e.target.value)} placeholder="e.g. Samuel Ebhomien" />
-      </Field>
-      <Row>
-        <Field label="Email address *">
-          <input style={S.input} value={form.email} onChange={e=>update("email",e.target.value)} placeholder="you@example.com" />
-        </Field>
-        <Field label="Phone number *">
-          <input style={S.input} value={form.phone} onChange={e=>update("phone",e.target.value)} placeholder="+234 80..." />
-        </Field>
-      </Row>
+      
+      
 
       <Field label="Role you're applying for">
         <select style={S.input} value={form.roleId} onChange={e=>update("roleId",e.target.value)}>
@@ -493,15 +781,18 @@ function ApplyForm({ form, update, handleFile, onSubmit, error, busy }) {
           placeholder="Paste or describe the job spec you're being screened against…" />
       </Field>
 
-      <Field label="Upload CV / Résumé (optional)">
-        <input type="file" accept=".txt,.docx,.pdf,.doc" onChange={handleFile} style={S.fileInput} />
-        {form.resumeName && <div style={S.fileNote}>📎 {form.resumeName} {form.resumeText?"— text captured":"— received"}</div>}
-      </Field>
+      
 
       {error && <div style={S.errorBox}>{error}</div>}
-      <button style={S.primaryBtn} onClick={onSubmit} disabled={busy}>
+      
+      <div style={{display:"flex", gap:16, marginTop:24}}>
+        <button style={S.secondaryBtn} onClick={onCancel} disabled={busy}>Cancel</button>
+        <button style={S.primaryBtn} onClick={onSubmit} disabled={busy}>
+          
         {busy ? "Starting interview…" : "Submit & Start AI Interview →"}
-      </button>
+      
+        </button>
+      </div>
     </div>
   );
 }
@@ -553,7 +844,7 @@ function Scoring() {
 }
 
 /* ── Results ── */
-function Results({ result, cert, roleLabel, onViewCert, onRestart }) {
+function Results({ result, cert, roleLabel, onViewCert, onRestart, onPublish, publishedStatus }) {
   const certified = result.overall_score >= 40;
   return (
     <div style={S.card}>
@@ -579,11 +870,28 @@ function Results({ result, cert, roleLabel, onViewCert, onRestart }) {
           <ul style={S.list}>{(result.improvements||[]).map((s,i)=><li key={i}>{s}</li>)}</ul></div>
       </div>
       {result.summary && <p style={S.summary}>{result.summary}</p>}
+      
+      {certified && cert && (
+        <div style={{ padding: "20px", background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: "8px", marginTop: "20px", marginBottom: "20px" }}>
+          <h3 style={{ margin: "0 0 10px 0", color: "#166534", fontSize: "16px" }}>Publish to Talent Pool</h3>
+          <p style={{ margin: "0 0 15px 0", color: "#15803d", fontSize: "14px" }}>
+            Make your score and certificate visible to top companies searching for talent.
+          </p>
+          <button 
+            style={publishedStatus === "published" ? S.secondaryBtn : S.primaryBtn} 
+            onClick={onPublish} 
+            disabled={publishedStatus === "publishing" || publishedStatus === "published"}
+          >
+            {publishedStatus === "published" ? "✅ Published to Talent Pool" : publishedStatus === "publishing" ? "Publishing..." : "Publish My Score & Certificate"}
+          </button>
+        </div>
+      )}
+
       {certified && cert
-        ? <button style={S.primaryBtn} onClick={onViewCert}>View My Certificate →</button>
+        ? <button style={S.secondaryBtn} onClick={onViewCert}>View My Certificate →</button>
         : <div style={S.errorBox}>Score below certification threshold. Prepare further and reapply.</div>
       }
-      <button style={S.linkBtn} onClick={onRestart}>Start a new application</button>
+      <button style={S.linkBtn} onClick={onRestart}>Back to Dashboard</button>
     </div>
   );
 }
@@ -713,7 +1021,10 @@ function CandidateCard({ candidate:c, onSelect }) {
       <div style={S.candCardTop}>
         <ScoreRing score={c.overall_score} />
         <div style={{flex:1,minWidth:0}}>
-          <div style={S.candName}>{c.name}</div>
+          <div style={{display: "flex", alignItems: "center", gap: "10px"}}>
+              {c.avatarUrl && <img src={c.avatarUrl} alt={c.name} style={{width: 32, height: 32, borderRadius: "50%", objectFit: "cover"}} />}
+              <div style={S.candName}>{c.name}</div>
+            </div>
           <div style={S.candRole}>{c.roleLabel}</div>
           <div style={S.candDate}>{date}</div>
         </div>
@@ -745,9 +1056,18 @@ function ProfileModal({ candidate:c, cvTab, setCvTab, onClose }) {
 
         {/* header */}
         <div style={S.modalHeader}>
-          <div>
-            <div style={S.modalName}>{c.name}</div>
-            <div style={S.modalMeta}>{c.roleLabel} · {date} · {c.certId}</div>
+          <div style={{display: "flex", alignItems: "center", gap: "16px"}}>
+            {c.avatarUrl && <img src={c.avatarUrl} alt={c.name} style={{width: 64, height: 64, borderRadius: "50%", objectFit: "cover"}} />}
+            <div>
+              <div style={S.modalName}>{c.name}</div>
+              <div style={S.modalMeta}>{c.roleLabel} · {date} · {c.certId}</div>
+              <div style={{fontSize: 13, color: "#475569", marginTop: 4}}>
+                {c.location && <span style={{marginRight: 10}}>📍 {c.location}</span>}
+                {c.experience && <span style={{marginRight: 10}}>💼 {c.experience}</span>}
+                {c.linkedin && <a href={c.linkedin} target="_blank" rel="noreferrer" style={{marginRight: 10, color: "#1d4ed8", textDecoration: "none"}}>🔗 LinkedIn</a>}
+                {c.portfolio && <a href={c.portfolio} target="_blank" rel="noreferrer" style={{color: "#1d4ed8", textDecoration: "none"}}>🌍 Portfolio</a>}
+              </div>
+            </div>
           </div>
           <button style={S.modalClose} onClick={onClose}>✕</button>
         </div>
