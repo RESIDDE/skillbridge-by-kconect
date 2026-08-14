@@ -434,7 +434,7 @@ function ApplicantPortal() {
   return <ApplicantDashboard session={session} />;
 }
 
-const TIME_PER_Q = 90; // seconds per question
+const TIME_PER_Q = 300; // seconds per question
 
 function ApplicantDashboard({ session }) {
   const [tab, setTab] = useState("profile"); // profile | certification
@@ -620,9 +620,11 @@ function ApplicantDashboard({ session }) {
     setBusy(false);
   }
 
-  async function submitAnswer() {
-    if(!answerDraft.trim()||busy) return;
-    const newMsgs = [...messages,{role:"user",content:answerDraft.trim()}];
+  async function submitAnswer(forcedText) {
+    const isForced = typeof forcedText === 'string';
+    const textToSubmit = isForced ? forcedText : answerDraft;
+    if(!textToSubmit.trim()||busy) return;
+    const newMsgs = [...messages,{role:"user",content:textToSubmit.trim()}];
     setMessages(newMsgs); setAnswerDraft(""); setBusy(true);
     if(questionCount>=QUESTIONS_TARGET){ await finishAndScore(newMsgs); setBusy(false); return; }
     try {
@@ -941,6 +943,9 @@ function Interview({ messages, answerDraft, setAnswerDraft, onSubmit, busy, ques
   const lastMsgCount = useRef(messages.length);
   const voiceSupported = typeof window !== "undefined" && ("SpeechRecognition" in window || "webkitSpeechRecognition" in window);
 
+  const draftRef = useRef(answerDraft);
+  useEffect(() => { draftRef.current = answerDraft; }, [answerDraft]);
+
   // Reset & start timer whenever a new AI message arrives
   useEffect(() => {
     const lastMsg = messages[messages.length - 1];
@@ -951,8 +956,8 @@ function Interview({ messages, answerDraft, setAnswerDraft, onSubmit, busy, ques
       setTimeLeft(t => {
         if (t <= 1) {
           clearInterval(timerRef.current);
-          // Auto-submit with placeholder if no answer typed
-          onSubmit();
+          const finalAns = draftRef.current.trim();
+          onSubmit(finalAns ? finalAns + " [Time expired]" : "[No answer provided — time expired]");
           return 0;
         }
         return t - 1;
