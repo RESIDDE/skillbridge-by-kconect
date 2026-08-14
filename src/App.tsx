@@ -22,7 +22,11 @@ const STORAGE_KEY        = "sb_candidates_v1";
 /* ─── helpers ─── */
 
 function cleanResponse(text) {
-  return text.replace(/<budget:[^>]+>.*?<\/budget:[^>]+>/gs, "").trim();
+  let cleaned = text.replace(/<budget:[^>]+>.*?<\/budget:[^>]+>/gs, "").trim();
+  // Replace markdown bold with quotes, and strip remaining asterisks to prevent TTS reading them
+  cleaned = cleaned.replace(/\*\*(.*?)\*\*/g, '"$1"');
+  cleaned = cleaned.replace(/\*/g, '');
+  return cleaned;
 }
 function cleanJson(text) {
   const s = cleanResponse(text).replace(/```json/gi,"").replace(/```/g,"").trim();
@@ -594,7 +598,7 @@ function ApplicantDashboard({ session }) {
       `Candidate: ${form.name}. Job spec: ${form.jobSpec}`,
       form.resumeText?`Resume excerpt: ${form.resumeText.slice(0,1500)}`:`No resume provided.`,
       `Competencies to probe: ${role.competencies.join(", ")}.`,
-      `Rules: Ask exactly ONE concise, intense question per turn. Pose complex, real-world, high-stakes scenarios or edge-cases specific to the ${roleLabel} role. Push for specific, actionable answers. No preamble, no pleasantries, no meta-commentary. Under 70 words. Do not answer your own question.`,
+      `Rules: Ask exactly ONE concise, intense question per turn. Pose complex, real-world, high-stakes scenarios or edge-cases specific to the ${roleLabel} role. Push for specific, actionable answers. No preamble, no pleasantries, no meta-commentary. Under 70 words. Do not answer your own question. DO NOT use markdown formatting like asterisks (**); use quotation marks instead if you need to emphasize something.`,
     ].join("\n");
   }
 
