@@ -977,7 +977,16 @@ function Interview({ messages, answerDraft, setAnswerDraft, onSubmit, busy, ques
     }
   }, [busy]);
 
-  // Auto-TTS removed — AI will no longer read questions automatically.
+  // TTS: speak AI question when voice mode is on
+  useEffect(() => {
+    const lastMsg = messages[messages.length - 1];
+    if (!voiceMode || !lastMsg || lastMsg.role !== "assistant") return;
+    window.speechSynthesis.cancel();
+    const utt = new SpeechSynthesisUtterance(lastMsg.content);
+    utt.rate = 0.95;
+    utt.pitch = 1;
+    window.speechSynthesis.speak(utt);
+  }, [messages.length, voiceMode]);
 
   // Stop TTS when voice mode is turned off
   useEffect(() => {
