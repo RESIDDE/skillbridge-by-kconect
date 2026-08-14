@@ -440,6 +440,108 @@ function ApplicantPortal() {
 
 const TIME_PER_Q = 300; // seconds per question
 
+function ProctorCam({ onWarning, onTerminate }) {
+  const videoRef = useRef(null);
+  const [modelLoaded, setModelLoaded] = useState(false);
+  const warningCount = useRef(0);
+  const framesWithoutFace = useRef(0);
+  const [showWarning, setShowWarning] = useState(false);
+
+  useEffect(() => {
+    async function loadModels() {
+      if (window.faceapi) {
+        await window.faceapi.nets.tinyFaceDetector.loadFromUri('https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/');
+        setModelLoaded(true);
+      } else {
+        const script = document.createElement("script");
+        script.src = "https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.js";
+        script.onload = async () => {
+          await window.faceapi.nets.tinyFaceDetector.loadFromUri('https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/');
+          setModelLoaded(true);
+        };
+        document.head.appendChild(script);
+      }
+    }
+    loadModels();
+  }, []);
+
+  useEffect(() => {
+    let stream = null;
+    let loopId = null;
+
+    async function startCam() {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+        }
+      } catch (e) {
+        console.error("Camera error", e);
+      }
+    }
+    startCam();
+
+    return () => {
+      if (stream) stream.getTracks().forEach(t => t.stop());
+      if (loopId) cancelAnimationFrame(loopId);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!modelLoaded || !videoRef.current || showWarning) return;
+    let loopId;
+    let lastTime = 0;
+    
+    async function detect() {
+      const now = Date.now();
+      if (now - lastTime > 300) { // ~3fps
+        lastTime = now;
+        if (videoRef.current && videoRef.current.readyState === 4) {
+          const detections = await window.faceapi.detectAllFaces(videoRef.current, new window.faceapi.TinyFaceDetectorOptions());
+          if (detections.length === 0) {
+            framesWithoutFace.current += 1;
+            if (framesWithoutFace.current >= 9) { // 3 seconds
+              if (warningCount.current === 0) {
+                setShowWarning(true);
+                warningCount.current = 1;
+                onWarning && onWarning();
+              } else {
+                onTerminate && onTerminate();
+              }
+            }
+          } else {
+            framesWithoutFace.current = 0;
+          }
+        }
+      }
+      loopId = requestAnimationFrame(detect);
+    }
+    detect();
+    return () => cancelAnimationFrame(loopId);
+  }, [modelLoaded, showWarning, onWarning, onTerminate]);
+
+  function handleResume() {
+    setShowWarning(false);
+    framesWithoutFace.current = 0;
+  }
+
+  return (
+    <>
+      <div style={S.proctorWrap}>
+        <div style={S.proctorLabel}><div style={S.proctorDot}/> {modelLoaded ? "PROCTOR ACTIVE" : "LOADING..."}</div>
+        <video ref={videoRef} autoPlay playsInline muted style={S.proctorVideo} />
+      </div>
+      {showWarning && (
+        <div style={S.proctorWarningOverlay}>
+          <div style={S.proctorWarningTitle}>⚠️ Proctor Warning</div>
+          <div style={S.proctorWarningText}>We cannot detect your face. Please ensure you remain in front of the camera. Further violations will result in immediate termination.</div>
+          <button style={S.proctorWarningBtn} onClick={handleResume}>I Understand</button>
+        </div>
+      )}
+    </>
+  );
+}
+
 function ApplicantDashboard({ session }) {
   const [tab, setTab] = useState("profile"); // profile | certification
   const [step, setStep] = useState("apply"); // apply | interview | scoring | results | certificate
@@ -463,6 +565,8 @@ function ApplicantDashboard({ session }) {
   const [profileLoading, setProfileLoading] = useState(true);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   
+  const [proctorTerminated, setProctorTerminated] = useState(false);
+
   const canvasRef = useRef(null);
   const chatEndRef = useRef(null);
 
@@ -489,6 +593,19 @@ function ApplicantDashboard({ session }) {
   }, [session]);
 
   useEffect(()=>{ chatEndRef.current?.scrollIntoView({behavior:"smooth"}); },[messages]);
+
+  if (proctorTerminated) {
+    return (
+      <main style={S.main}>
+        <div style={S.card}>
+          <h2 style={{...S.cardTitle, color:"#991b1b"}}>⚠️ Interview Terminated</h2>
+          <p style={S.cardSub}>Your session was terminated due to a proctoring violation (leaving the camera frame repeatedly).</p>
+          <div style={S.errorBox}>A score of 0 has been recorded for this session.</div>
+          <button style={S.primaryBtn} onClick={() => { setProctorTerminated(false); setStep("apply"); }}>Return to Dashboard</button>
+        </div>
+      </main>
+    );
+  }
 
   const role = ROLES.find(r=>r.id===form.roleId)||ROLES[0];
   const roleLabel = form.roleId==="other" ? (form.customRole||"the applied role") : role.label;
@@ -741,12 +858,17 @@ function ApplicantDashboard({ session }) {
               onSubmit={startInterview} error={error} busy={busy} onCancel={()=>setTab("profile")} />
           )}
           {step==="interview" && (
-            <Interview messages={messages} answerDraft={answerDraft}
-              setAnswerDraft={setAnswerDraft} onSubmit={submitAnswer}
-              busy={busy} questionCount={Math.min(questionCount,QUESTIONS_TARGET)}
-              total={QUESTIONS_TARGET} chatEndRef={chatEndRef} error={error}
-              voiceMode={voiceMode} onToggleVoice={()=>setVoiceMode(v=>!v)}
-              timePerQ={TIME_PER_Q} />
+            <>
+              <ProctorCam 
+                onTerminate={() => { setProctorTerminated(true); }}
+              />
+              <Interview messages={messages} answerDraft={answerDraft}
+                setAnswerDraft={setAnswerDraft} onSubmit={submitAnswer}
+                busy={busy} questionCount={Math.min(questionCount,QUESTIONS_TARGET)}
+                total={QUESTIONS_TARGET} chatEndRef={chatEndRef} error={error}
+                voiceMode={voiceMode} onToggleVoice={()=>setVoiceMode(v=>!v)}
+                timePerQ={TIME_PER_Q} />
+            </>
           )}
           {step==="scoring" && <Scoring />}
           {step==="results" && result && (
@@ -1614,6 +1736,16 @@ const S = {
   dangerZoneTitle:{ fontWeight:700, fontSize:15, color:"#991b1b", marginBottom:6 },
   dangerZoneSub:{ fontSize:13, color:"#6b7280", marginBottom:16, lineHeight:1.5, margin:"6px 0 16px" },
   deleteBtn:{ background:"#991b1b", color:"#fff", border:"none", padding:"12px 22px", borderRadius:10, fontWeight:700, fontSize:14, cursor:"pointer" },
+
+  /* ── Proctor Cam ── */
+  proctorWrap:{ position:"fixed", bottom:30, right:30, width:160, height:120, borderRadius:12, overflow:"hidden", border:"2px solid #e7e2d3", background:"#000", boxShadow:"0 8px 24px rgba(17,32,59,0.15)", zIndex:50 },
+  proctorVideo:{ width:"100%", height:"100%", objectFit:"cover", transform:"scaleX(-1)" },
+  proctorLabel:{ position:"absolute", top:6, left:6, background:"rgba(0,0,0,0.6)", color:"#fff", fontSize:10, padding:"4px 8px", borderRadius:4, fontWeight:600, display:"flex", alignItems:"center", gap:6 },
+  proctorDot:{ width:6, height:6, borderRadius:"50%", background:"#ef4444", animation:"pulse 2s infinite" },
+  proctorWarningOverlay:{ position:"fixed", inset:0, background:"rgba(153,27,27,0.95)", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", zIndex:9999, padding:20, textAlign:"center", color:"#fff", backdropFilter:"blur(8px)" },
+  proctorWarningTitle:{ fontSize:24, fontWeight:700, marginBottom:12, fontFamily:"'Space Grotesk',sans-serif" },
+  proctorWarningText:{ fontSize:15, lineHeight:1.6, marginBottom:24, maxWidth:400 },
+  proctorWarningBtn:{ background:"#fff", color:"#991b1b", border:"none", padding:"12px 24px", borderRadius:12, fontWeight:700, fontSize:15, cursor:"pointer" },
 
   /* ── Voice mode ── */
   voiceToggleBtn:{ padding:"8px 14px", borderRadius:20, border:"1.5px solid #e2ddcd", background:"#f5f1e8", fontSize:13, fontWeight:600, cursor:"pointer", color:"#5a5f6b", transition:"all 0.2s" },
