@@ -447,6 +447,7 @@ function ProctorCam({ onWarning, onTerminate }) {
   const framesWithoutFace = useRef(0);
   const [showWarning, setShowWarning] = useState(false);
   const [warningReason, setWarningReason] = useState("");
+  const [isTerminated, setIsTerminated] = useState(false);
 
   useEffect(() => {
     async function loadModels() {
@@ -489,28 +490,31 @@ function ProctorCam({ onWarning, onTerminate }) {
   }, []);
 
   const triggerWarning = useCallback((reason) => {
+    if (isTerminated) return;
     if (warningCount.current < 3) {
       warningCount.current += 1;
       setWarningReason(reason);
       setShowWarning(true);
       onWarning && onWarning();
     } else {
-      onTerminate && onTerminate();
+      setWarningReason(reason);
+      setIsTerminated(true);
+      setShowWarning(true);
     }
-  }, [onWarning, onTerminate]);
+  }, [onWarning, isTerminated]);
 
   useEffect(() => {
     function handleVisibilityChange() {
-      if (document.hidden && !showWarning) {
+      if (document.hidden && !showWarning && !isTerminated) {
         triggerWarning("You left the interview screen or switched tabs.");
       }
     }
     document.addEventListener("visibilitychange", handleVisibilityChange);
     return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
-  }, [showWarning, triggerWarning]);
+  }, [showWarning, isTerminated, triggerWarning]);
 
   useEffect(() => {
-    if (!modelLoaded || !videoRef.current || showWarning) return;
+    if (!modelLoaded || !videoRef.current || showWarning || isTerminated) return;
     let loopId;
     let lastTime = 0;
     
@@ -534,11 +538,15 @@ function ProctorCam({ onWarning, onTerminate }) {
     }
     detect();
     return () => cancelAnimationFrame(loopId);
-  }, [modelLoaded, showWarning, triggerWarning]);
+  }, [modelLoaded, showWarning, isTerminated, triggerWarning]);
 
   function handleResume() {
     setShowWarning(false);
     framesWithoutFace.current = 0;
+  }
+
+  function handleExit() {
+    onTerminate && onTerminate();
   }
 
   return (
@@ -549,9 +557,19 @@ function ProctorCam({ onWarning, onTerminate }) {
       </div>
       {showWarning && (
         <div style={S.proctorWarningOverlay}>
-          <div style={S.proctorWarningTitle}>⚠️ Proctor Warning ({warningCount.current}/3)</div>
-          <div style={S.proctorWarningText}>{warningReason} Further violations will result in immediate termination.</div>
-          <button style={S.proctorWarningBtn} onClick={handleResume}>I Understand</button>
+          {isTerminated ? (
+            <>
+              <div style={S.proctorWarningTitle}>⚠️ Interview Terminated</div>
+              <div style={S.proctorWarningText}>{warningReason} You have exceeded the maximum allowed violations. A score of 0 has been recorded.</div>
+              <button style={S.proctorWarningBtn} onClick={handleExit}>Exit Interview</button>
+            </>
+          ) : (
+            <>
+              <div style={S.proctorWarningTitle}>⚠️ Proctor Warning ({warningCount.current}/3)</div>
+              <div style={S.proctorWarningText}>{warningReason} Further violations will result in immediate termination.</div>
+              <button style={S.proctorWarningBtn} onClick={handleResume}>I Understand</button>
+            </>
+          )}
         </div>
       )}
     </>
