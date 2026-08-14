@@ -446,6 +446,7 @@ function ProctorCam({ onWarning, onTerminate }) {
   const warningCount = useRef(0);
   const framesWithoutFace = useRef(0);
   const [showWarning, setShowWarning] = useState(false);
+  const [warningReason, setWarningReason] = useState("");
 
   useEffect(() => {
     async function loadModels() {
@@ -487,6 +488,27 @@ function ProctorCam({ onWarning, onTerminate }) {
     };
   }, []);
 
+  const triggerWarning = useCallback((reason) => {
+    if (warningCount.current < 3) {
+      warningCount.current += 1;
+      setWarningReason(reason);
+      setShowWarning(true);
+      onWarning && onWarning();
+    } else {
+      onTerminate && onTerminate();
+    }
+  }, [onWarning, onTerminate]);
+
+  useEffect(() => {
+    function handleVisibilityChange() {
+      if (document.hidden && !showWarning) {
+        triggerWarning("You left the interview screen or switched tabs.");
+      }
+    }
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
+  }, [showWarning, triggerWarning]);
+
   useEffect(() => {
     if (!modelLoaded || !videoRef.current || showWarning) return;
     let loopId;
@@ -501,13 +523,7 @@ function ProctorCam({ onWarning, onTerminate }) {
           if (detections.length === 0) {
             framesWithoutFace.current += 1;
             if (framesWithoutFace.current >= 9) { // 3 seconds
-              if (warningCount.current === 0) {
-                setShowWarning(true);
-                warningCount.current = 1;
-                onWarning && onWarning();
-              } else {
-                onTerminate && onTerminate();
-              }
+              triggerWarning("We cannot detect your face. Please ensure you remain in front of the camera.");
             }
           } else {
             framesWithoutFace.current = 0;
@@ -518,7 +534,7 @@ function ProctorCam({ onWarning, onTerminate }) {
     }
     detect();
     return () => cancelAnimationFrame(loopId);
-  }, [modelLoaded, showWarning, onWarning, onTerminate]);
+  }, [modelLoaded, showWarning, triggerWarning]);
 
   function handleResume() {
     setShowWarning(false);
@@ -533,8 +549,8 @@ function ProctorCam({ onWarning, onTerminate }) {
       </div>
       {showWarning && (
         <div style={S.proctorWarningOverlay}>
-          <div style={S.proctorWarningTitle}>⚠️ Proctor Warning</div>
-          <div style={S.proctorWarningText}>We cannot detect your face. Please ensure you remain in front of the camera. Further violations will result in immediate termination.</div>
+          <div style={S.proctorWarningTitle}>⚠️ Proctor Warning ({warningCount.current}/3)</div>
+          <div style={S.proctorWarningText}>{warningReason} Further violations will result in immediate termination.</div>
           <button style={S.proctorWarningBtn} onClick={handleResume}>I Understand</button>
         </div>
       )}
