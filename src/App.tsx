@@ -973,16 +973,7 @@ function Interview({ messages, answerDraft, setAnswerDraft, onSubmit, busy, ques
     }
   }, [busy]);
 
-  // TTS: speak AI question when voice mode is on
-  useEffect(() => {
-    const lastMsg = messages[messages.length - 1];
-    if (!voiceMode || !lastMsg || lastMsg.role !== "assistant") return;
-    window.speechSynthesis.cancel();
-    const utt = new SpeechSynthesisUtterance(lastMsg.content);
-    utt.rate = 0.95;
-    utt.pitch = 1;
-    window.speechSynthesis.speak(utt);
-  }, [messages.length, voiceMode]);
+  // Auto-TTS removed — AI will no longer read questions automatically.
 
   // Stop TTS when voice mode is turned off
   useEffect(() => {
@@ -1079,9 +1070,9 @@ function Interview({ messages, answerDraft, setAnswerDraft, onSubmit, busy, ques
           <div key={i} style={m.role==="assistant"?S.bubbleAI:S.bubbleUser}>
             <div style={S.bubbleLabel}>{m.role==="assistant"?"Interviewer":"You"}</div>
             {m.content}
-            {/* Replay TTS button on last AI message in voice mode */}
+            {/* Read Aloud button on last AI message in voice mode */}
             {voiceMode && m.role==="assistant" && i===messages.length-1 && (
-              <button onClick={replayTTS} style={S.replayBtn}>🔊 Replay</button>
+              <button onClick={replayTTS} style={S.replayBtn}>🔊 Read Aloud</button>
             )}
           </div>
         ))}
@@ -1103,17 +1094,14 @@ function Interview({ messages, answerDraft, setAnswerDraft, onSubmit, busy, ques
           <div style={{display:"flex", gap:10, justifyContent:"center", marginTop:10}}>
             <button
               style={{...S.micBtn, ...(listening ? S.micBtnActive : {})}}
-              onMouseDown={startListening}
-              onMouseUp={stopListening}
-              onTouchStart={startListening}
-              onTouchEnd={stopListening}
+              onClick={() => listening ? stopListening() : startListening()}
               disabled={busy}
             >
-              {listening ? "🎙 Listening…" : "🎤 Hold to Speak"}
+              {listening ? "⏹ Stop Recording" : "🎤 Click to Speak"}
             </button>
             <button style={S.primaryBtnSmall} onClick={onSubmit} disabled={busy||!answerDraft.trim()}>Send ↵</button>
           </div>
-          {listening && <div style={S.listeningPulse}>● Recording — release to stop</div>}
+          {listening && <div style={S.listeningPulse}>● Recording — click stop when done</div>}
         </div>
       ) : (
         <div style={S.answerRow}>
