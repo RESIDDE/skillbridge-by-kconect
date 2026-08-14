@@ -434,11 +434,14 @@ function ApplicantPortal() {
   return <ApplicantDashboard session={session} />;
 }
 
+const TIME_PER_Q = 90; // seconds per question
+
 function ApplicantDashboard({ session }) {
   const [tab, setTab] = useState("profile"); // profile | certification
   const [step, setStep] = useState("apply"); // apply | interview | scoring | results | certificate
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [voiceMode, setVoiceMode] = useState(false);
   const [form, setForm] = useState({
     name:"", email: session.user.email, phone:"", roleId:"sales",
     customRole:"", jobSpec:"", resumeName:"", resumeText:"",
@@ -598,18 +601,7 @@ function ApplicantDashboard({ session }) {
   async function startInterview() {
     setError("");
     if(!form.name || !form.phone){
-      setError("Please fill in your full name and phone number on your Profile page.");
-      setTab("profile");
-      return;
-    }
-    if(!form.avatarUrl){
-      setError("Please upload a Profile Photo on your Profile page before starting.");
-      setTab("profile");
-      return;
-    }
-    if(!form.resumeText){
-      setError("Please upload your CV/Résumé (PDF or Word) on your Profile page before starting.");
-      setTab("profile");
+      setError("Please fill in your Full Name and Phone number on the Profile page first.");
       return;
     }
     if(!form.jobSpec){
@@ -617,14 +609,8 @@ function ApplicantDashboard({ session }) {
       return;
     }
     setBusy(true);
-    try {
-      await saveProfile(session.user.id, session.user.email, form);
-    } catch (e) {
-      setError("Could not save profile: " + (e.message || "Check permissions."));
-      setBusy(false);
-      setTab("profile");
-      return;
-    }
+    // Save profile silently — don't block interview on save failure
+    try { await saveProfile(session.user.id, session.user.email, form); } catch(e) { console.warn("Profile auto-save failed:", e); }
     setStep("interview");
     try {
       const text = await callLLM(interviewSystem(),[{role:"user",content:"Begin the interview. Greet the candidate briefly and ask your first question."}]);
@@ -752,7 +738,9 @@ function ApplicantDashboard({ session }) {
             <Interview messages={messages} answerDraft={answerDraft}
               setAnswerDraft={setAnswerDraft} onSubmit={submitAnswer}
               busy={busy} questionCount={Math.min(questionCount,QUESTIONS_TARGET)}
-              total={QUESTIONS_TARGET} chatEndRef={chatEndRef} error={error} />
+              total={QUESTIONS_TARGET} chatEndRef={chatEndRef} error={error}
+              voiceMode={voiceMode} onToggleVoice={()=>setVoiceMode(v=>!v)}
+              timePerQ={TIME_PER_Q} />
           )}
           {step==="scoring" && <Scoring />}
           {step==="results" && result && (
@@ -945,34 +933,189 @@ function ApplyForm({ form, update, handleFile, onSubmit, error, busy, onCancel }
 }
 
 /* ── Interview ── */
-function Interview({ messages, answerDraft, setAnswerDraft, onSubmit, busy, questionCount, total, chatEndRef, error }) {
+function Interview({ messages, answerDraft, setAnswerDraft, onSubmit, busy, questionCount, total, chatEndRef, error, voiceMode, onToggleVoice, timePerQ }) {
+  const [timeLeft, setTimeLeft] = useState(timePerQ);
+  const [listening, setListening] = useState(false);
+  const timerRef = useRef(null);
+  const recognitionRef = useRef(null);
+  const lastMsgCount = useRef(messages.length);
+  const voiceSupported = typeof window !== "undefined" && ("SpeechRecognition" in window || "webkitSpeechRecognition" in window);
+
+  // Reset & start timer whenever a new AI message arrives
+  useEffect(() => {
+    const lastMsg = messages[messages.length - 1];
+    if (!lastMsg || lastMsg.role !== "assistant") return;
+    setTimeLeft(timePerQ);
+    if (timerRef.current) clearInterval(timerRef.current);
+    timerRef.current = setInterval(() => {
+      setTimeLeft(t => {
+        if (t <= 1) {
+          clearInterval(timerRef.current);
+          // Auto-submit with placeholder if no answer typed
+          onSubmit();
+          return 0;
+        }
+        return t - 1;
+      });
+    }, 1000);
+    return () => clearInterval(timerRef.current);
+  }, [messages.length]);
+
+  // Pause timer while AI is generating
+  useEffect(() => {
+    if (busy) {
+      clearInterval(timerRef.current);
+    }
+  }, [busy]);
+
+  // TTS: speak AI question when voice mode is on
+  useEffect(() => {
+    const lastMsg = messages[messages.length - 1];
+    if (!voiceMode || !lastMsg || lastMsg.role !== "assistant") return;
+    window.speechSynthesis.cancel();
+    const utt = new SpeechSynthesisUtterance(lastMsg.content);
+    utt.rate = 0.95;
+    utt.pitch = 1;
+    window.speechSynthesis.speak(utt);
+  }, [messages.length, voiceMode]);
+
+  // Stop TTS when voice mode is turned off
+  useEffect(() => {
+    if (!voiceMode) window.speechSynthesis.cancel();
+  }, [voiceMode]);
+
+  function replayTTS() {
+    const lastMsg = messages.filter(m => m.role === "assistant").pop();
+    if (!lastMsg) return;
+    window.speechSynthesis.cancel();
+    const utt = new SpeechSynthesisUtterance(lastMsg.content);
+    utt.rate = 0.95;
+    window.speechSynthesis.speak(utt);
+  }
+
+  function startListening() {
+    if (!voiceSupported) return;
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    const rec = new SR();
+    rec.lang = "en-US";
+    rec.interimResults = true;
+    rec.continuous = false;
+    rec.onresult = (e) => {
+      const transcript = Array.from(e.results).map(r => r[0].transcript).join("");
+      setAnswerDraft(transcript);
+    };
+    rec.onend = () => setListening(false);
+    rec.onerror = () => setListening(false);
+    recognitionRef.current = rec;
+    rec.start();
+    setListening(true);
+  }
+
+  function stopListening() {
+    recognitionRef.current?.stop();
+    setListening(false);
+  }
+
+  // Timer color
+  const pct = timeLeft / timePerQ;
+  const timerColor = pct > 0.33 ? "#167a44" : pct > 0.11 ? "#d4a83c" : "#a13b3b";
+  const mins = Math.floor(timeLeft / 60);
+  const secs = timeLeft % 60;
+  const timerLabel = `${mins}:${secs.toString().padStart(2,"0")}`;
+
+  // SVG ring
+  const R = 22, CIRC = 2 * Math.PI * R;
+  const dash = CIRC * pct;
+
   return (
     <div style={S.card}>
+      {/* Header row */}
       <div style={S.interviewHead}>
-        <h2 style={S.cardTitle}>Live Interview</h2>
-        <div style={S.progressTag}>Question {questionCount} of {total}</div>
+        <div>
+          <h2 style={{...S.cardTitle, marginBottom:0}}>Live Interview</h2>
+          <div style={S.progressTag}>Question {questionCount} of {total}</div>
+        </div>
+        <div style={{display:"flex", alignItems:"center", gap:14}}>
+          {/* Countdown ring */}
+          {!busy && (
+            <div style={{display:"flex", alignItems:"center", gap:6}}>
+              <svg width={54} height={54}>
+                <circle cx={27} cy={27} r={R} fill="none" stroke="#eee8d8" strokeWidth={4}/>
+                <circle cx={27} cy={27} r={R} fill="none" stroke={timerColor} strokeWidth={4}
+                  strokeDasharray={`${dash} ${CIRC}`} strokeLinecap="round"
+                  transform="rotate(-90 27 27)" style={{transition:"stroke-dasharray 1s linear, stroke 0.5s"}}/>
+                <text x={27} y={31} textAnchor="middle" fontSize={11} fontWeight={700}
+                  fontFamily="Inter,sans-serif" fill={timerColor}>{timerLabel}</text>
+              </svg>
+            </div>
+          )}
+          {/* Voice toggle */}
+          <button
+            title={voiceSupported ? (voiceMode ? "Switch to Text Mode" : "Switch to Voice Mode") : "Voice not supported in this browser"}
+            style={{...S.voiceToggleBtn, ...(voiceMode ? S.voiceToggleBtnOn : {}), opacity: voiceSupported ? 1 : 0.35, cursor: voiceSupported ? "pointer" : "default"}}
+            onClick={voiceSupported ? onToggleVoice : undefined}
+          >
+            {voiceMode ? "🔊 Voice" : "💬 Text"}
+          </button>
+        </div>
       </div>
+
+      {/* Progress bar */}
       <div style={S.progressTrack}>
         <div style={{...S.progressFill,width:`${(questionCount/total)*100}%`}} />
       </div>
+
+      {/* Chat messages */}
       <div style={S.chatBox}>
         {messages.map((m,i)=>(
           <div key={i} style={m.role==="assistant"?S.bubbleAI:S.bubbleUser}>
             <div style={S.bubbleLabel}>{m.role==="assistant"?"Interviewer":"You"}</div>
             {m.content}
+            {/* Replay TTS button on last AI message in voice mode */}
+            {voiceMode && m.role==="assistant" && i===messages.length-1 && (
+              <button onClick={replayTTS} style={S.replayBtn}>🔊 Replay</button>
+            )}
           </div>
         ))}
         {busy && <div style={S.bubbleAI}><div style={S.bubbleLabel}>Interviewer</div><span style={S.dots}>···</span></div>}
         <div ref={chatEndRef} />
       </div>
+
       {error && <div style={S.errorBox}>{error}</div>}
-      <div style={S.answerRow}>
-        <textarea style={{...S.input,height:70,resize:"none",flex:1}} placeholder="Type your answer…"
-          value={answerDraft} onChange={e=>setAnswerDraft(e.target.value)}
-          onKeyDown={e=>{ if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();onSubmit();} }}
-          disabled={busy} />
-        <button style={S.primaryBtnSmall} onClick={onSubmit} disabled={busy||!answerDraft.trim()}>Send</button>
-      </div>
+
+      {/* Input area */}
+      {voiceMode ? (
+        <div style={S.voiceInputArea}>
+          {answerDraft && (
+            <div style={S.transcriptBox}>
+              <div style={{fontSize:11, color:"#6b7280", marginBottom:4, fontWeight:600}}>TRANSCRIPT</div>
+              <div style={{fontSize:14, color:"#11203b", lineHeight:1.6}}>{answerDraft}</div>
+            </div>
+          )}
+          <div style={{display:"flex", gap:10, justifyContent:"center", marginTop:10}}>
+            <button
+              style={{...S.micBtn, ...(listening ? S.micBtnActive : {})}}
+              onMouseDown={startListening}
+              onMouseUp={stopListening}
+              onTouchStart={startListening}
+              onTouchEnd={stopListening}
+              disabled={busy}
+            >
+              {listening ? "🎙 Listening…" : "🎤 Hold to Speak"}
+            </button>
+            <button style={S.primaryBtnSmall} onClick={onSubmit} disabled={busy||!answerDraft.trim()}>Send ↵</button>
+          </div>
+          {listening && <div style={S.listeningPulse}>● Recording — release to stop</div>}
+        </div>
+      ) : (
+        <div style={S.answerRow}>
+          <textarea style={{...S.input,height:70,resize:"none",flex:1}} placeholder="Type your answer…"
+            value={answerDraft} onChange={e=>setAnswerDraft(e.target.value)}
+            onKeyDown={e=>{ if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();onSubmit();} }}
+            disabled={busy} />
+          <button style={S.primaryBtnSmall} onClick={onSubmit} disabled={busy||!answerDraft.trim()}>Send</button>
+        </div>
+      )}
     </div>
   );
 }
@@ -1299,6 +1442,7 @@ const FONT_IMPORT = `
 @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&display=swap');
 @keyframes spin { to { transform: rotate(360deg); } }
 @keyframes fadeIn { from { opacity:0; transform:translateY(16px); } to { opacity:1; transform:translateY(0); } }
+@keyframes pulse { 0%,100% { box-shadow: 0 0 0 4px rgba(17,32,59,0.15); } 50% { box-shadow: 0 0 0 10px rgba(17,32,59,0.08); } }
 * { box-sizing: border-box; }
 body { margin: 0; }
 `;
@@ -1461,4 +1605,14 @@ const S = {
   dangerZoneTitle:{ fontWeight:700, fontSize:15, color:"#991b1b", marginBottom:6 },
   dangerZoneSub:{ fontSize:13, color:"#6b7280", marginBottom:16, lineHeight:1.5, margin:"6px 0 16px" },
   deleteBtn:{ background:"#991b1b", color:"#fff", border:"none", padding:"12px 22px", borderRadius:10, fontWeight:700, fontSize:14, cursor:"pointer" },
+
+  /* ── Voice mode ── */
+  voiceToggleBtn:{ padding:"8px 14px", borderRadius:20, border:"1.5px solid #e2ddcd", background:"#f5f1e8", fontSize:13, fontWeight:600, cursor:"pointer", color:"#5a5f6b", transition:"all 0.2s" },
+  voiceToggleBtnOn:{ background:"#11203b", color:"#d4a83c", border:"1.5px solid #11203b" },
+  voiceInputArea:{ marginTop:12, display:"flex", flexDirection:"column", gap:8 },
+  transcriptBox:{ background:"#f5f1e8", border:"1px solid #e7e2d3", borderRadius:10, padding:"12px 14px", minHeight:60 },
+  micBtn:{ padding:"16px 32px", borderRadius:50, border:"2px solid #11203b", background:"#fff", fontSize:15, fontWeight:700, cursor:"pointer", color:"#11203b", transition:"all 0.2s", userSelect:"none" },
+  micBtnActive:{ background:"#11203b", color:"#fff", boxShadow:"0 0 0 6px rgba(17,32,59,0.15)", animation:"pulse 1s ease-in-out infinite" },
+  replayBtn:{ marginTop:8, display:"block", background:"none", border:"none", fontSize:12, color:"#d4a83c", cursor:"pointer", fontWeight:600, padding:0 },
+  listeningPulse:{ textAlign:"center", fontSize:12, color:"#a13b3b", fontWeight:600, letterSpacing:0.5 },
 };
