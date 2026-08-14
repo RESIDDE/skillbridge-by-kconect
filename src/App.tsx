@@ -129,23 +129,24 @@ async function loadProfile(userId) {
 }
 
 async function saveProfile(userId, email, profileData) {
-  try {
-    const { error } = await supabase.from('profiles').upsert({
-      id: userId,
-      email: email,
-      name: profileData.name,
-      phone: profileData.phone,
-      resume_name: profileData.resumeName,
-      resume_text: profileData.resumeText,
-      location: profileData.location,
-      linkedin: profileData.linkedin,
-      portfolio: profileData.portfolio,
-      experience: profileData.experience,
-      avatar_url: profileData.avatarUrl,
-      updated_at: new Date().toISOString()
-    });
-    if (error) console.error(error);
-  } catch(e) { console.error(e); }
+  const { error } = await supabase.from('profiles').upsert({
+    id: userId,
+    email: email,
+    name: profileData.name,
+    phone: profileData.phone,
+    resume_name: profileData.resumeName,
+    resume_text: profileData.resumeText,
+    location: profileData.location,
+    linkedin: profileData.linkedin,
+    portfolio: profileData.portfolio,
+    experience: profileData.experience,
+    avatar_url: profileData.avatarUrl,
+    updated_at: new Date().toISOString()
+  });
+  if (error) {
+    console.error("Supabase profiles upsert error:", error);
+    throw error;
+  }
 }
 
 /* ──────────────── Certificate Canvas ──────────────── */
@@ -346,13 +347,13 @@ async function uploadAvatar(file, userId) {
   }
   
   const fileExt = file.name.split('.').pop();
-  const fileName = `${userId}-${Math.random()}.${fileExt}`;
-  const filePath = `${fileName}`;
+  const fileName = `${Math.random()}.${fileExt}`;
+  const filePath = `${userId}/${fileName}`;
   
   const { error: uploadError } = await supabase.storage.from('avatars').upload(filePath, file);
   if (uploadError) {
-    console.error('Error uploading avatar:', uploadError.message);
-    alert('Failed to upload image. Please ensure the "avatars" bucket is created in Supabase Storage.');
+    console.error('Error uploading avatar:', uploadError);
+    alert('Failed to upload image: ' + uploadError.message + '\n\nPlease ensure the "avatars" bucket exists and your SQL script was successfully executed.');
     return null;
   }
   
@@ -434,7 +435,8 @@ function ApplicantPortal() {
 }
 
 function ApplicantDashboard({ session }) {
-  const [step, setStep] = useState("dashboard"); // dashboard | apply | interview | scoring | results | certificate
+  const [tab, setTab] = useState("profile"); // profile | certification
+  const [step, setStep] = useState("apply"); // apply | interview | scoring | results | certificate
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [form, setForm] = useState({
@@ -449,9 +451,10 @@ function ApplicantDashboard({ session }) {
   const [result, setResult] = useState(null);
   const [cert, setCert] = useState(null);
   const [candidateId, setCandidateId] = useState(null);
-  const [publishedStatus, setPublishedStatus] = useState("unpublished"); // unpublished | publishing | published
+  const [publishedStatus, setPublishedStatus] = useState("unpublished");
   const [emailStatus, setEmailStatus] = useState("");
   const [profileLoading, setProfileLoading] = useState(true);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
   
   const canvasRef = useRef(null);
   const chatEndRef = useRef(null);
@@ -485,24 +488,34 @@ function ApplicantDashboard({ session }) {
 
   function update(f,v){ setForm(p=>({...p,[f]:v})); }
 
+  async function loadPdfJs() {
+    return new Promise((resolve, reject) => {
+      if (window.pdfjsLib) {
+        resolve(window.pdfjsLib);
+        return;
+      }
+      const script = document.createElement("script");
+      script.src = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js";
+      script.onload = () => {
+        window.pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js";
+        resolve(window.pdfjsLib);
+      };
+      script.onerror = () => reject(new Error("Failed to load PDF library from CDN."));
+      document.head.appendChild(script);
+    });
+  }
+
   async function handleFile(e) {
     const file = e.target.files?.[0]; if(!file) return;
-    
     const ext = file.name.split('.').pop().toLowerCase();
     if (!['pdf', 'doc', 'docx'].includes(ext)) {
       alert("Resume must be a PDF or Word document (.pdf, .doc, .docx)");
       return;
     }
-    
-    if (file.size > 5 * 1024 * 1024) {
-      alert("Resume size must be less than 5MB");
-      return;
-    }
-    update("resumeName",file.name);
     try {
+      let extractedText = "";
       if(ext === "pdf") {
-        const pdfjsLib = await import("pdfjs-dist");
-        pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`;
+        const pdfjsLib = await loadPdfJs();
         const arrayBuffer = await file.arrayBuffer();
         const pdf = await pdfjsLib.getDocument({data: arrayBuffer}).promise;
         let text = "";
@@ -511,28 +524,46 @@ function ApplicantDashboard({ session }) {
           const content = await page.getTextContent();
           text += content.items.map(item => item.str).join(" ") + "\n";
         }
-        update("resumeText", text.slice(0, 4000));
+        extractedText = text.trim();
       } else if(ext === "docx" || ext === "doc"){
         const m = await import("mammoth");
-        update("resumeText",((await m.extractRawText({arrayBuffer:await file.arrayBuffer()})).value||"").slice(0,4000));
-      } else {
-        update("resumeText","");
+        extractedText = ((await m.extractRawText({arrayBuffer:await file.arrayBuffer()})).value||"").trim();
       }
+      update("resumeName", file.name);
+      update("resumeText", extractedText.slice(0, 4000));
     } catch(err) {
-      console.error(err);
-      update("resumeText","");
+      console.error("Document parsing error:", err);
+      update("resumeName", file.name);
+      update("resumeText", "");
     }
   }
-  
+
   async function saveMyProfile() {
-    if(!form.name || !form.phone || !form.avatarUrl || !form.resumeText) {
-      alert("Please ensure your Name, Phone, Profile Photo, and Resume are provided.");
+    if(!form.name || !form.phone) {
+      alert("Please fill in your Full Name and Phone number.");
       return;
     }
     setBusy(true);
-    await saveProfile(session.user.id, session.user.email, form);
-    setBusy(false);
-    alert("Profile saved successfully.");
+    try {
+      await saveProfile(session.user.id, session.user.email, form);
+      alert("Profile saved successfully.");
+    } catch(e) {
+      alert("Failed to save profile: " + (e.message || "Unknown error."));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function deleteMyAccount() {
+    setBusy(true);
+    try {
+      await supabase.from('profiles').delete().eq('id', session.user.id);
+      await supabase.auth.signOut();
+    } catch(e) {
+      alert("Error deleting account: " + (e.message || "Unknown error."));
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function callLLM(system, msgs) {
@@ -566,19 +597,35 @@ function ApplicantDashboard({ session }) {
 
   async function startInterview() {
     setError("");
-    if(!form.name||!form.phone||!form.jobSpec){
-      setError("Please fill in your full name, phone and job specification."); return;
+    if(!form.name || !form.phone){
+      setError("Please fill in your full name and phone number on your Profile page.");
+      setTab("profile");
+      return;
     }
     if(!form.avatarUrl){
-      setError("Please upload a Profile Photo before taking the interview."); return;
+      setError("Please upload a Profile Photo on your Profile page before starting.");
+      setTab("profile");
+      return;
     }
     if(!form.resumeText){
-      setError("Please upload your CV/Résumé (PDF or Word) before taking the interview."); return;
+      setError("Please upload your CV/Résumé (PDF or Word) on your Profile page before starting.");
+      setTab("profile");
+      return;
     }
-    // Auto-save profile when starting interview
-    await saveProfile(session.user.id, session.user.email, form);
-    
-    setBusy(true); setStep("interview");
+    if(!form.jobSpec){
+      setError("Please paste or describe the job specification you're applying for.");
+      return;
+    }
+    setBusy(true);
+    try {
+      await saveProfile(session.user.id, session.user.email, form);
+    } catch (e) {
+      setError("Could not save profile: " + (e.message || "Check permissions."));
+      setBusy(false);
+      setTab("profile");
+      return;
+    }
+    setStep("interview");
     try {
       const text = await callLLM(interviewSystem(),[{role:"user",content:"Begin the interview. Greet the candidate briefly and ask your first question."}]);
       setMessages([{role:"assistant",content:text.trim()}]);
@@ -614,7 +661,6 @@ function ApplicantDashboard({ session }) {
       ].join("\n");
       const parsed = cleanJson(await callLLM(scoringSystem,[{role:"user",content:`Transcript:\n\n${transcript}`}]));
       setResult(parsed);
-      
       let newCert = null;
       if(parsed.overall_score>=40){
         const issue=new Date(), expiry=new Date(issue);
@@ -627,8 +673,6 @@ function ApplicantDashboard({ session }) {
         };
         setCert(newCert);
       }
-      
-      // ── persist candidate to talent pool, but unpublished initially ──
       const insertedId = await saveCandidate({
         userId: session.user.id,
         published: false,
@@ -642,7 +686,6 @@ function ApplicantDashboard({ session }) {
         certId: newCert ? newCert.certId : null
       });
       if (insertedId) setCandidateId(insertedId);
-      
       setStep("results");
     } catch(e){ setError("Scoring failed. Please try again."); setStep("interview"); }
   }
@@ -652,7 +695,7 @@ function ApplicantDashboard({ session }) {
     const a=document.createElement("a");
     a.download=`SkillBridge-${cert.certId}.png`; a.href=c.toDataURL("image/png"); a.click();
   }
-  
+
   async function handlePublish() {
     if (!candidateId) return;
     setPublishedStatus("publishing");
@@ -664,19 +707,125 @@ function ApplicantDashboard({ session }) {
 
   return (
     <main style={S.main}>
-      <div style={{display:"flex", justifyContent:"space-between", marginBottom:20, alignItems:"center", maxWidth:640, width:"100%", margin:"0 auto 20px"}}>
-        <span style={{color:"#6b7280", fontSize:14}}>Logged in as {session.user.email}</span>
+      {/* Top bar */}
+      <div style={S.portalTopBar}>
+        <div style={S.portalUserInfo}>
+          {form.avatarUrl && <img src={form.avatarUrl} alt="avatar" style={S.portalAvatar} />}
+          <span style={{color:"#6b7280", fontSize:13}}>{session.user.email}</span>
+        </div>
         <button style={S.linkBtn} onClick={()=>supabase.auth.signOut()}>Sign Out</button>
       </div>
 
-      {step==="dashboard" && (
-        <div style={S.card}>
-          <h2 style={S.cardTitle}>Applicant Dashboard</h2>
-          <p style={S.cardSub}>Complete your profile to prepare for interviews.</p>
+      {/* Tab nav */}
+      <div style={S.tabNav}>
+        <button style={{...S.tabBtn, ...(tab==="profile" ? S.tabBtnActive : {})}} onClick={()=>setTab("profile")}>
+          👤 My Profile
+        </button>
+        <button style={{...S.tabBtn, ...(tab==="certification" ? S.tabBtnActive : {})}} onClick={()=>{ setTab("certification"); setStep("apply"); setError(""); }}>
+          🎓 Certification
+        </button>
+      </div>
+
+      {/* ── Profile Page ── */}
+      {tab==="profile" && (
+        <ProfilePage
+          form={form}
+          update={update}
+          session={session}
+          busy={busy}
+          avatarUploading={avatarUploading}
+          setAvatarUploading={setAvatarUploading}
+          handleFile={handleFile}
+          onSave={saveMyProfile}
+          onDeleteRequest={()=>setShowDeleteModal(true)}
+        />
+      )}
+
+      {/* ── Certification Page ── */}
+      {tab==="certification" && (
+        <div>
+          {step==="apply" && (
+            <ApplyForm form={form} update={update} handleFile={handleFile}
+              onSubmit={startInterview} error={error} busy={busy} onCancel={()=>setTab("profile")} />
+          )}
+          {step==="interview" && (
+            <Interview messages={messages} answerDraft={answerDraft}
+              setAnswerDraft={setAnswerDraft} onSubmit={submitAnswer}
+              busy={busy} questionCount={Math.min(questionCount,QUESTIONS_TARGET)}
+              total={QUESTIONS_TARGET} chatEndRef={chatEndRef} error={error} />
+          )}
+          {step==="scoring" && <Scoring />}
+          {step==="results" && result && (
+            <Results result={result} cert={cert} roleLabel={roleLabel}
+              onViewCert={()=>setStep("certificate")}
+              onRestart={()=>{ setStep("apply"); setError(""); }}
+              onPublish={handlePublish}
+              publishedStatus={publishedStatus} />
+          )}
+          {step==="certificate" && cert && (
+            <CertificateView cert={cert} canvasRef={canvasRef}
+              onDownload={downloadCertificate} emailStatus={emailStatus}
+              onEmail={()=>{ setEmailStatus("sending"); setTimeout(()=>setEmailStatus("sent"),900); }}
+              onBack={()=>setStep("results")} />
+          )}
+        </div>
+      )}
+
+      {/* Delete Modal */}
+      {showDeleteModal && (
+        <DeleteAccountModal
+          onConfirm={deleteMyAccount}
+          onCancel={()=>setShowDeleteModal(false)}
+          busy={busy}
+        />
+      )}
+    </main>
+  );
+}
+
+/* ── Profile Page ── */
+function ProfilePage({ form, update, session, busy, avatarUploading, setAvatarUploading, handleFile, onSave, onDeleteRequest }) {
+  return (
+    <div style={{display:"flex", flexDirection:"column", gap:20}}>
+      {/* Profile card */}
+      <div style={S.card}>
+        <h2 style={S.cardTitle}>My Profile</h2>
+        <p style={S.cardSub}>Your personal details are stored securely and used in your certification interviews.</p>
+
+        {/* Avatar section */}
+        <div style={S.profileAvatarRow}>
+          <div style={S.profileAvatarWrap}>
+            {form.avatarUrl
+              ? <img src={form.avatarUrl} alt="Profile" style={S.profileAvatarImg} />
+              : <div style={S.profileAvatarPlaceholder}>👤</div>
+            }
+          </div>
+          <div style={{flex:1}}>
+            <div style={{fontWeight:700, fontSize:16, marginBottom:4}}>{form.name || "Your Name"}</div>
+            <div style={{fontSize:13, color:"#6b7280", marginBottom:10}}>{session.user.email}</div>
+            <label style={S.uploadPhotoBtn}>
+              {avatarUploading ? "Uploading..." : "📷 Change Photo"}
+              <input type="file" accept="image/*" style={{display:"none"}} onChange={async e => {
+                const file = e.target.files?.[0];
+                if(!file) return;
+                if (file.size > 5 * 1024 * 1024) { alert("Image must be under 5MB"); return; }
+                setAvatarUploading(true);
+                const url = await uploadAvatar(file, session.user.id);
+                if (url) update("avatarUrl", url);
+                setAvatarUploading(false);
+              }} />
+            </label>
+          </div>
+        </div>
+
+        <div style={S.divider} />
+
+        {/* Fields */}
+        <div style={S.profileGrid}>
           <Field label="Full Name *">
             <input style={S.input} value={form.name} onChange={e=>update("name",e.target.value)} placeholder="Jane Doe" />
           </Field>
-          <Field label="Phone number *">
+          <Field label="Phone Number *">
             <input style={S.input} value={form.phone} onChange={e=>update("phone",e.target.value)} placeholder="+234 80..." />
           </Field>
           <Field label="Location">
@@ -691,65 +840,63 @@ function ApplicantDashboard({ session }) {
           <Field label="Portfolio URL">
             <input style={S.input} value={form.portfolio} onChange={e=>update("portfolio",e.target.value)} placeholder="https://yourportfolio.com" />
           </Field>
-
-          <Field label="Profile Photo (Max 5MB)">
-            <input style={S.input} type="file" accept="image/*" onChange={async e => {
-              const file = e.target.files?.[0];
-              if(!file) return;
-              if (file.size > 5 * 1024 * 1024) {
-                alert("Image size must be less than 5MB");
-                return;
-              }
-              setAvatarUploading(true);
-              const url = await uploadAvatar(file, session.user.id);
-              if (url) update("avatarUrl", url);
-              setAvatarUploading(false);
-            }} />
-            {avatarUploading && <span style={{fontSize: 12, color: "#6b7280"}}>Uploading...</span>}
-            {form.avatarUrl && !avatarUploading && <img src={form.avatarUrl} alt="Avatar" style={{width: 48, height: 48, borderRadius: "50%", marginTop: 8, objectFit: "cover"}} />}
-          </Field>
-
-          <Field label="CV / Résumé (Max 5MB) *">
-            <input style={S.input} type="file" accept=".pdf,.doc,.docx" onChange={handleFile} />
-            {form.resumeName && <div style={{fontSize: 12, marginTop: 4, color: "#16a34a"}}>✓ {form.resumeName} loaded</div>}
-          </Field>
-          
-          <div style={{display:"flex", gap:16, marginTop:24}}>
-            <button style={S.secondaryBtn} onClick={saveMyProfile} disabled={busy}>
-              {busy ? "Saving..." : "Save Profile"}
-            </button>
-            <button style={S.primaryBtn} onClick={()=>setStep("apply")}>
-              Take an Interview →
-            </button>
-          </div>
         </div>
-      )}
 
-      {step==="apply" && (
-        <ApplyForm form={form} update={update} handleFile={handleFile}
-          onSubmit={startInterview} error={error} busy={busy} onCancel={()=>setStep("dashboard")} />
-      )}
-      {step==="interview" && (
-        <Interview messages={messages} answerDraft={answerDraft}
-          setAnswerDraft={setAnswerDraft} onSubmit={submitAnswer}
-          busy={busy} questionCount={Math.min(questionCount,QUESTIONS_TARGET)}
-          total={QUESTIONS_TARGET} chatEndRef={chatEndRef} error={error} />
-      )}
-      {step==="scoring" && <Scoring />}
-      {step==="results" && result && (
-        <Results result={result} cert={cert} roleLabel={roleLabel}
-          onViewCert={()=>setStep("certificate")}
-          onRestart={()=>setStep("dashboard")}
-          onPublish={handlePublish}
-          publishedStatus={publishedStatus} />
-      )}
-      {step==="certificate" && cert && (
-        <CertificateView cert={cert} canvasRef={canvasRef}
-          onDownload={downloadCertificate} emailStatus={emailStatus}
-          onEmail={()=>{ setEmailStatus("sending"); setTimeout(()=>setEmailStatus("sent"),900); }}
-          onBack={()=>setStep("results")} />
-      )}
-    </main>
+        <Field label="CV / Résumé (PDF or Word, max 5MB)">
+          <input style={S.input} type="file" accept=".pdf,.doc,.docx" onChange={handleFile} />
+          {form.resumeName && <div style={{fontSize:12, marginTop:5, color:"#16a34a"}}>✓ {form.resumeName} loaded</div>}
+        </Field>
+
+        <button style={{...S.primaryBtn, marginTop:16}} onClick={onSave} disabled={busy}>
+          {busy ? "Saving..." : "Save Profile"}
+        </button>
+      </div>
+
+      {/* Danger Zone */}
+      <div style={S.dangerZone}>
+        <div style={S.dangerZoneTitle}>⚠️ Danger Zone</div>
+        <p style={S.dangerZoneSub}>Permanently delete your profile and all associated data. This action cannot be undone.</p>
+        <button style={S.deleteBtn} onClick={onDeleteRequest}>Delete My Account</button>
+      </div>
+    </div>
+  );
+}
+
+/* ── Delete Account Modal ── */
+function DeleteAccountModal({ onConfirm, onCancel, busy }) {
+  const [phrase, setPhrase] = useState("");
+  const CONFIRM_PHRASE = "DELETE MY ACCOUNT";
+  const isMatch = phrase.trim() === CONFIRM_PHRASE;
+  return (
+    <div style={S.modalOverlay} onClick={onCancel}>
+      <div style={{...S.modalBox, maxWidth:440, padding:32}} onClick={e=>e.stopPropagation()}>
+        <div style={{fontSize:40, textAlign:"center", marginBottom:12}}>🗑️</div>
+        <h2 style={{...S.cardTitle, textAlign:"center", color:"#991b1b"}}>Delete Account</h2>
+        <p style={{fontSize:14, color:"#5a5f6b", textAlign:"center", marginBottom:20, lineHeight:1.6}}>
+          This will permanently delete your profile data and cannot be reversed.
+          To confirm, type the phrase below:
+        </p>
+        <div style={{background:"#fef2f2", border:"1px solid #fecaca", borderRadius:8, padding:"10px 16px", textAlign:"center", fontWeight:700, fontSize:14, color:"#991b1b", marginBottom:16, letterSpacing:1}}>
+          {CONFIRM_PHRASE}
+        </div>
+        <input
+          style={{...S.input, textAlign:"center", marginBottom:20, fontWeight:600}}
+          placeholder="Type the phrase above..."
+          value={phrase}
+          onChange={e=>setPhrase(e.target.value)}
+        />
+        <div style={{display:"flex", gap:12}}>
+          <button style={{...S.secondaryBtn, flex:1}} onClick={onCancel} disabled={busy}>Cancel</button>
+          <button
+            style={{...S.deleteBtn, flex:1, opacity: isMatch ? 1 : 0.4, cursor: isMatch ? "pointer" : "not-allowed"}}
+            onClick={isMatch ? onConfirm : undefined}
+            disabled={!isMatch || busy}
+          >
+            {busy ? "Deleting..." : "Confirm Delete"}
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -1295,4 +1442,23 @@ const S = {
   modalContactBtns:{ display:"flex", gap:10 },
   contactBtnEmailLg:{ padding:"10px 20px", borderRadius:10, background:"#1d4ed8", color:"#fff", fontSize:13, fontWeight:700, textDecoration:"none" },
   contactBtnCallLg:{ padding:"10px 20px", borderRadius:10, background:"#15803d", color:"#fff", fontSize:13, fontWeight:700, textDecoration:"none" },
+
+  /* ── Profile page & tab nav ── */
+  portalTopBar:{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16 },
+  portalUserInfo:{ display:"flex", alignItems:"center", gap:10 },
+  portalAvatar:{ width:32, height:32, borderRadius:"50%", objectFit:"cover" },
+  tabNav:{ display:"flex", gap:4, background:"#fff", border:"1px solid #e7e2d3", borderRadius:14, padding:5, marginBottom:22, boxShadow:"0 2px 8px rgba(17,32,59,0.05)" },
+  tabBtn:{ flex:1, padding:"11px", borderRadius:10, border:"none", background:"transparent", fontWeight:600, fontSize:14, cursor:"pointer", color:"#5a5f6b", transition:"all 0.2s" },
+  tabBtnActive:{ background:"#11203b", color:"#fff", boxShadow:"0 2px 8px rgba(17,32,59,0.2)" },
+  profileAvatarRow:{ display:"flex", alignItems:"center", gap:20, marginBottom:22 },
+  profileAvatarWrap:{ width:84, height:84, borderRadius:"50%", overflow:"hidden", border:"3px solid #e7e2d3", flexShrink:0, background:"#f5f1e8", display:"flex", alignItems:"center", justifyContent:"center" },
+  profileAvatarImg:{ width:"100%", height:"100%", objectFit:"cover" },
+  profileAvatarPlaceholder:{ fontSize:36 },
+  uploadPhotoBtn:{ display:"inline-block", padding:"8px 16px", background:"#f5f1e8", border:"1.5px solid #e7e2d3", borderRadius:9, fontSize:13, fontWeight:600, cursor:"pointer", color:"#11203b" },
+  divider:{ height:1, background:"#e7e2d3", margin:"18px 0" },
+  profileGrid:{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"0 16px" },
+  dangerZone:{ background:"#fff", border:"1.5px solid #fecaca", borderRadius:14, padding:24 },
+  dangerZoneTitle:{ fontWeight:700, fontSize:15, color:"#991b1b", marginBottom:6 },
+  dangerZoneSub:{ fontSize:13, color:"#6b7280", marginBottom:16, lineHeight:1.5, margin:"6px 0 16px" },
+  deleteBtn:{ background:"#991b1b", color:"#fff", border:"none", padding:"12px 22px", borderRadius:10, fontWeight:700, fontSize:14, cursor:"pointer" },
 };
