@@ -1005,9 +1005,12 @@ function Interview({ messages, answerDraft, setAnswerDraft, onSubmit, busy, ques
     rec.lang = "en-US";
     rec.interimResults = true;
     rec.continuous = false;
+    
+    const existingText = answerDraft.trim() ? answerDraft.trim() + " " : "";
+
     rec.onresult = (e) => {
       const transcript = Array.from(e.results).map(r => r[0].transcript).join("");
-      setAnswerDraft(transcript);
+      setAnswerDraft(existingText + transcript);
     };
     rec.onend = () => setListening(false);
     rec.onerror = () => setListening(false);
