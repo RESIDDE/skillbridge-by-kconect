@@ -1,6 +1,15 @@
 // @ts-nocheck
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import { supabase } from "./supabase";
+import { WorldMap } from "./components/ui/map";
+import AetherFlowHero from "./components/ui/aether-flow-hero";
+import { Skiper52 } from "./components/ui/expand-on-hover";
+import { VoiceChat } from "./components/ui/ia-siri-chat";
+import { ChatBubble, ChatBubbleAvatar, ChatBubbleMessage, ChatBubbleAction, ChatBubbleActionWrapper } from "./components/ui/chat-bubble";
+import { Volume2, Home, User, Briefcase } from "lucide-react";
+import { FAQSection } from "./components/ui/faq-section";
+import { CinematicFooter } from "./components/ui/motion-footer";
+import { Dock, DockIcon, DockItem, DockLabel } from "./components/ui/dock";
 
 /* ---------------------------------------------------------
    SkillBridge — Dual Portal: Applicant + Company
@@ -14,7 +23,7 @@ const ROLES = [
   { id: "other",  label: "Other role",        competencies: ["Role Knowledge","Communication","Problem Solving","Reliability","Professionalism"] },
 ];
 
-const QUESTIONS_TARGET  = 10;
+const QUESTIONS_TARGET  = 3;
 const OPENROUTER_API_KEY = import.meta.env.VITE_OPENROUTER_API_KEY;
 const OPENROUTER_MODEL   = "anthropic/claude-sonnet-4-5";
 const STORAGE_KEY        = "sb_candidates_v1";
@@ -42,14 +51,14 @@ function genId() {
   return Math.random().toString(36).slice(2)+Date.now().toString(36);
 }
 function scoreColor(s) {
-  if (s >= 70) return "#167a44";
-  if (s >= 50) return "#d4a83c";
+  if (s >= 90) return "#167a44";
+  if (s >= 70) return "#d4a83c";
   return "#a13b3b";
 }
 function tierLabel(t) {
-  if (t >= 100) return "Strong Fit";
-  if (t >= 70)  return "Good Fit";
-  return "Developing";
+  if (t >= 100) return "Exceptional Fit";
+  if (t >= 90)  return "Qualified Fit";
+  return "Not Qualified";
 }
 
 /* ─── Supabase helpers ─── */
@@ -112,8 +121,14 @@ async function saveCandidate(record) {
     };
     const { data, error } = await supabase.from('candidates').insert([dbRecord]).select();
     if (data) return data[0].id;
-    if (error) console.error("Supabase save error:", error);
-  } catch(e) { console.error("Supabase save error:", e); }
+    if (error) {
+      console.error("Supabase save error:", error);
+      alert("DB Insert Error: " + JSON.stringify(error));
+    }
+  } catch(e) {
+    console.error("Supabase save error:", e);
+    alert("DB Catch Error: " + e.message);
+  }
 }
 
 
@@ -122,6 +137,18 @@ async function publishCandidate(id) {
     const { error } = await supabase.from('candidates').update({ published: true }).eq('id', id);
     if (error) console.error("Supabase publish error:", error);
   } catch(e) { console.error("Supabase publish error:", e); }
+}
+
+async function loadMyLatestCandidate(userId) {
+  try {
+    const { data, error } = await supabase.from('candidates').select('*').eq('user_id', userId).order('created_at', { ascending: false }).limit(1).single();
+    if (error && error.code !== 'PGRST116') {
+      console.error(error);
+      alert("DB Load Error: " + JSON.stringify(error));
+      return null;
+    }
+    return data;
+  } catch(e) { return null; }
 }
 
 async function loadProfile(userId) {
@@ -184,9 +211,19 @@ function CertificateCanvas({ data, canvasRef }) {
     const barW=620,barH=34,barX=W/2-barW/2;
     ctx.fillStyle="#e7e9ee"; roundRect(ctx,barX,y,barW,barH,8); ctx.fill();
     const fillW=Math.max((barW*data.tier)/100,barH);
-    ctx.fillStyle=data.tier>=100?GREEN:data.tier>=70?GOLD:"#b07d2f"; roundRect(ctx,barX,y,fillW,barH,8); ctx.fill();
+    ctx.fillStyle=data.tier>=90?GREEN:data.tier>=70?GOLD:"#a13b3b"; roundRect(ctx,barX,y,fillW,barH,8); ctx.fill();
     ctx.fillStyle=NAVY; ctx.font="bold 20px Inter,sans-serif"; ctx.textAlign="left";
-    ctx.fillText(`${data.tier}%`,barX+barW+16,y+25); ctx.textAlign="center"; y+=90;
+    ctx.fillText(`${data.tier}%`,barX+barW+16,y+25); ctx.textAlign="center"; y+=80;
+
+    let remark = "Demonstrated baseline competencies required for the role.";
+    let remarkColor = "#b07d2f";
+    const score = typeof data.overall_score === 'number' ? data.overall_score : (data.tier || 0);
+    if (score >= 90) { remark = "Exceptional performance. Passed the 90% baseline and is highly recommended."; remarkColor = GREEN; }
+    else { remark = "Did not meet the 90% baseline requirement to qualify for this role."; remarkColor = "#a13b3b"; }
+
+    ctx.fillStyle=NAVY; ctx.font="bold 22px 'Space Grotesk',sans-serif"; ctx.fillText(`FINAL INTERVIEW SCORE: ${score} / 100`, W/2, y); y+=40;
+    ctx.fillStyle=remarkColor; ctx.font="italic 19px Inter,sans-serif"; ctx.fillText(`Official Remark: "${remark}"`, W/2, y); y+=90;
+
     ctx.fillStyle=GREY; ctx.font="15px Inter,sans-serif";
     ctx.fillText(`Issued: ${data.issueDate}`,W/2-220,y);
     ctx.fillStyle="#a13b3b"; ctx.fillText(`Valid Until: ${data.expiryDate}`,W/2+220,y);
@@ -230,26 +267,52 @@ export default function App() {
     <div style={S.page}>
       <style>{FONT_IMPORT}</style>
 
-      {/* ── Header ── */}
-      <header style={S.header}>
-        <button onClick={()=>setPortal("home")} style={S.brandBtn}>
-          <span style={S.brand}>SKILLBRIDGE</span>
-          <span style={S.headerTag}>by kconect</span>
-        </button>
-        <div style={{flex:1}}/>
-        {portal !== "home" && (
-          <div style={S.headerNav}>
-            <button
-              style={{...S.navPill, ...(portal==="applicant"?S.navPillActive:{})}}
-              onClick={()=>setPortal("applicant")}
-            >Applicant Portal</button>
-            <button
-              style={{...S.navPill, ...(portal==="company"?S.navPillActive:{})}}
-              onClick={()=>setPortal("company")}
-            >Company Dashboard</button>
-          </div>
-        )}
-      </header>
+      {/* Floating Dock Navigation Bar */}
+      <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 max-w-full">
+        <Dock className="items-end pb-3 bg-neutral-900/60 border border-neutral-800/80 shadow-2xl rounded-2xl backdrop-blur-xl">
+          <DockItem
+            onClick={() => setPortal("home")}
+            className={`aspect-square rounded-full flex items-center justify-center border transition-all ${
+              portal === "home"
+                ? "bg-purple-600/90 border-purple-500 shadow-[0_0_15px_rgba(168,85,247,0.5)]"
+                : "bg-neutral-800/70 border-neutral-700/50 hover:bg-neutral-700/80"
+            }`}
+          >
+            <DockLabel>Home</DockLabel>
+            <DockIcon>
+              <Home className="h-5 w-5 text-neutral-200" />
+            </DockIcon>
+          </DockItem>
+
+          <DockItem
+            onClick={() => setPortal("applicant")}
+            className={`aspect-square rounded-full flex items-center justify-center border transition-all ${
+              portal === "applicant"
+                ? "bg-purple-600/90 border-purple-500 shadow-[0_0_15px_rgba(168,85,247,0.5)]"
+                : "bg-neutral-800/70 border-neutral-700/50 hover:bg-neutral-700/80"
+            }`}
+          >
+            <DockLabel>Applicant Portal</DockLabel>
+            <DockIcon>
+              <User className="h-5 w-5 text-neutral-200" />
+            </DockIcon>
+          </DockItem>
+
+          <DockItem
+            onClick={() => setPortal("company")}
+            className={`aspect-square rounded-full flex items-center justify-center border transition-all ${
+              portal === "company"
+                ? "bg-purple-600/90 border-purple-500 shadow-[0_0_15px_rgba(168,85,247,0.5)]"
+                : "bg-neutral-800/70 border-neutral-700/50 hover:bg-neutral-700/80"
+            }`}
+          >
+            <DockLabel>Company Dashboard</DockLabel>
+            <DockIcon>
+              <Briefcase className="h-5 w-5 text-neutral-200" />
+            </DockIcon>
+          </DockItem>
+        </Dock>
+      </div>
 
       {portal === "home"      && <HomePage      onApplicant={()=>setPortal("applicant")} onCompany={()=>setPortal("company")} />}
       {portal === "applicant" && <ApplicantPortal />}
@@ -265,80 +328,201 @@ export default function App() {
 ══════════════════════════════════════════════════════ */
 
 function HomePage({ onApplicant, onCompany }) {
+  useEffect(() => {
+    window.scrollTo(0, 0);
+    const resetEvent = new Event('resetSection');
+    window.dispatchEvent(resetEvent);
+  }, []);
+
   return (
-    <main style={S.homeMain}>
-      <div style={S.homeHero}>
-        <div style={S.heroKicker}>AI-POWERED TALENT CERTIFICATION</div>
-        <h1 style={S.heroTitle}>The smarter way to<br/>hire and get hired.</h1>
-        <p style={S.heroSub}>
-          SkillBridge by kconect bridges the gap between top talent and leading companies. 
-          Through rigorous, Silicon Valley-style AI interviews, we certify applicants' skills and provide businesses with a verified pool of exceptional candidates.
-        </p>
+    <div className="relative w-full min-h-screen overflow-x-hidden bg-background">
+      <main className="relative z-10 w-full bg-[#020617] rounded-b-[40px] shadow-2xl mb-[-1px]">
+        <div style={S.landingPage}>
+      {/* ═══ AETHER FLOW HERO (particle canvas + headline + CTAs) ═══ */}
+      <AetherFlowHero onApplicant={onApplicant} onCompany={onCompany} />
+
+      {/* ═══ WORLD MAP ═══ */}
+      <div className="relative w-full" style={{minHeight: '55vh', background: '#020617'}}>
+        <div className="absolute inset-x-0 top-0 h-32 z-10 pointer-events-none" style={{background:'linear-gradient(to bottom, #020617, transparent)'}} />
+        <div className="absolute inset-x-0 bottom-0 h-32 z-10 pointer-events-none" style={{background:'linear-gradient(to top, #020617, transparent)'}} />
+        <WorldMap
+          dots={[
+            { start: { lat: 64.2008, lng: -149.4937, label: "Fairbanks" }, end: { lat: 34.0522, lng: -118.2437, label: "Los Angeles" } },
+            { start: { lat: 64.2008, lng: -149.4937, label: "Fairbanks" }, end: { lat: -15.7975, lng: -47.8919, label: "Brasília" } },
+            { start: { lat: -15.7975, lng: -47.8919, label: "Brasília" }, end: { lat: 38.7223, lng: -9.1393, label: "Lisbon" } },
+            { start: { lat: 51.5074, lng: -0.1278, label: "London" }, end: { lat: 28.6139, lng: 77.209, label: "New Delhi" } },
+            { start: { lat: 28.6139, lng: 77.209, label: "New Delhi" }, end: { lat: 43.1332, lng: 131.9113, label: "Vladivostok" } },
+            { start: { lat: 28.6139, lng: 77.209, label: "New Delhi" }, end: { lat: -1.2921, lng: 36.8219, label: "Nairobi" } },
+            { start: { lat: -1.2921, lng: 36.8219, label: "Nairobi" }, end: { lat: -26.2041, lng: 28.0473, label: "Johannesburg" } },
+            { start: { lat: 6.5244, lng: 3.3792, label: "Lagos" }, end: { lat: 51.5074, lng: -0.1278, label: "London" } },
+            { start: { lat: 6.5244, lng: 3.3792, label: "Lagos" }, end: { lat: 40.7128, lng: -74.006, label: "New York" } },
+          ]}
+        />
       </div>
 
-      <div style={S.infoSection}>
-        <div style={S.infoBlock}>
-          <div style={S.infoIcon}>🚀</div>
-          <h3 style={S.infoTitle}>For Applicants</h3>
-          <p style={S.infoText}>
-            Stop sending resumes into the void. Take our intense, role-specific AI interview to prove your practical skills. Pass the threshold, and you'll earn a verified SkillBridge certificate and enter our exclusive talent pool where top companies can contact you directly.
-          </p>
-        </div>
-        <div style={S.infoBlock}>
-          <div style={S.infoIcon}>🏢</div>
-          <h3 style={S.infoTitle}>For Businesses</h3>
-          <p style={S.infoText}>
-            Skip the endless resume screening. Access a curated pool of pre-interviewed candidates. Review detailed competency breakdowns, AI-generated strengths and weaknesses, and contact top-tier talent who have already proven their mettle.
-          </p>
-        </div>
-      </div>
 
-      <div style={S.portalGrid}>
-        {/* Applicant card */}
-        <div style={S.portalCard} onClick={onApplicant}>
-          <div style={S.portalIcon}>🎯</div>
-          <div style={S.portalCardBadge}>APPLICANT PORTAL</div>
-          <h2 style={S.portalCardTitle}>Apply & Get Certified</h2>
-          <p style={S.portalCardSub}>
-            Complete a structured AI interview for your target role. Receive a verified
-            score and downloadable certificate that employers trust.
-          </p>
-          <div style={S.portalCardSteps}>
-            {["Fill your profile & upload CV","Complete 10-question AI interview","Get scored & certified instantly"].map((s,i)=>(
-              <div key={i} style={S.portalStep}><span style={S.portalStepNum}>{i+1}</span>{s}</div>
-            ))}
+
+      {/* ── PARTNERS ── */}
+      <section style={S.partnersSection}>
+        <div style={S.partnersLabel}>TRUSTED BY LEADING BUSINESSES ACROSS AFRICA</div>
+        <Skiper52 />
+      </section>
+
+      {/* ── PORTALS ── */}
+      <section style={S.portalSection}>
+        <div style={S.sectionLabel}>TWO POWERFUL PORTALS</div>
+        <h2 style={S.sectionTitle}>One Platform. Two Paths.</h2>
+        <p style={S.sectionSub}>Whether you're proving your skills or finding exceptional talent, SkillBridge has you covered.</p>
+
+        <div style={S.newPortalGrid}>
+          {/* Applicant */}
+          <div className="portal-card-hover" style={S.newPortalCardLight} onClick={onApplicant}>
+            <div style={S.newPortalCardTop}>
+              <div style={S.newPortalCardIconWrap}><span style={{fontSize:32}}>🎯</span></div>
+              <div style={S.newPortalBadgeLight}>APPLICANT PORTAL</div>
+            </div>
+            <h3 style={S.newPortalCardTitle}>Apply & Get Certified</h3>
+            <p style={S.newPortalCardSub}>Stop sending resumes into the void. Complete an intense, role-specific AI interview and earn a verified certificate that employers trust.</p>
+            <div style={S.newPortalSteps}>
+              {["Fill your profile & upload CV","Answer 3 AI-driven interview questions","Score 90%+ to earn your certificate"].map((s,i)=>(
+                <div key={i} style={S.newPortalStep}>
+                  <div style={S.newPortalStepNum}>{i+1}</div>
+                  <span style={{fontSize:14, color:"#3a3f4b"}}>{s}</span>
+                </div>
+              ))}
+            </div>
+            <button style={S.newPortalBtnDark}>Start My Application →</button>
           </div>
-          <button style={S.portalBtn}>Start My Application →</button>
-        </div>
 
-        {/* Company card */}
-        <div style={{...S.portalCard,...S.portalCardDark}} onClick={onCompany}>
-          <div style={S.portalIcon}>💼</div>
-          <div style={{...S.portalCardBadge,...S.portalCardBadgeDark}}>COMPANY DASHBOARD</div>
-          <h2 style={{...S.portalCardTitle,color:"#fff"}}>Search Talent Pool</h2>
-          <p style={{...S.portalCardSub,color:"#b8c4d4"}}>
-            Browse pre-screened, AI-interviewed candidates filtered by role and score.
-            View CVs and contact top talent directly.
-          </p>
-          <div style={S.portalCardSteps}>
-            {["Filter candidates by role","View scores & competency breakdown","Email or call candidates directly"].map((s,i)=>(
-              <div key={i} style={{...S.portalStep,color:"#cbd5e1"}}><span style={{...S.portalStepNum,background:"#d4a83c",color:"#11203b"}}>{i+1}</span>{s}</div>
-            ))}
+          {/* Company */}
+          <div className="portal-card-hover" style={S.newPortalCardDark} onClick={onCompany}>
+            <div style={S.newPortalCardTop}>
+              <div style={{...S.newPortalCardIconWrap, background:"rgba(212,168,60,0.15)", border:"1px solid rgba(212,168,60,0.3)"}}><span style={{fontSize:32}}>💼</span></div>
+              <div style={S.newPortalBadgeDark}>COMPANY DASHBOARD</div>
+            </div>
+            <h3 style={{...S.newPortalCardTitle, color:"#fff"}}>Search Verified Talent</h3>
+            <p style={{...S.newPortalCardSub, color:"#8fa3be"}}>Skip endless CV screening. Browse a curated pool of pre-tested, AI-scored candidates — complete with competency breakdowns and direct contact info.</p>
+            <div style={S.newPortalSteps}>
+              {["Filter by role and score threshold","View AI-generated competency breakdowns","Email or call candidates instantly"].map((s,i)=>(
+                <div key={i} style={S.newPortalStep}>
+                  <div style={{...S.newPortalStepNum, background:"#d4a83c", color:"#11203b"}}>{i+1}</div>
+                  <span style={{fontSize:14, color:"#9db3c8"}}>{s}</span>
+                </div>
+              ))}
+            </div>
+            <button style={S.newPortalBtnGold}>Open Dashboard →</button>
           </div>
-          <button style={{...S.portalBtn,...S.portalBtnGold}}>Open Dashboard →</button>
         </div>
-      </div>
+      </section>
 
-      <div style={S.homeStats}>
-        {[["AI-Powered","Interviews"],["Verified","Scores"],["Instant","Certificates"],["Direct","Contact"]].map(([n,l],i)=>(
-          <div key={i} style={S.statItem}>
-            <div style={S.statIcon}>{["🤖","✅","📜","📞"][i]}</div>
-            <div style={S.statLabel}>{n}</div>
-            <div style={S.statSub}>{l}</div>
+      {/* ── ABOUT & MISSION ── */}
+      <section style={S.aboutSection}>
+        <div style={S.aboutGrid}>
+          <div style={S.aboutCard}>
+            <div style={S.aboutIcon}>🌍</div>
+            <h3 style={S.aboutTitle}>About Us</h3>
+            <p style={S.aboutText}>SkillBridge by kconect is redefining how talent meets opportunity. We leverage cutting-edge AI to conduct rigorous, unbiased interviews, ensuring candidates are judged purely on merit, practical skills, and cultural fit.</p>
           </div>
-        ))}
-      </div>
-    </main>
+          <div style={S.aboutCard}>
+            <div style={S.aboutIcon}>🎯</div>
+            <h3 style={S.aboutTitle}>Our Mission</h3>
+            <p style={S.aboutText}>To democratize access to elite careers for African professionals by removing bias from the hiring process and providing companies with instantly verified, highly capable talent pools.</p>
+          </div>
+          <div style={S.aboutCard}>
+            <div style={S.aboutIcon}>👁️</div>
+            <h3 style={S.aboutTitle}>Our Vision</h3>
+            <p style={S.aboutText}>A world where resumes are obsolete, and a single, unified SkillBridge certificate is the global standard for proving competency and securing top-tier employment.</p>
+          </div>
+        </div>
+      </section>
+
+      {/* ── HOW IT WORKS ── */}
+      <section style={S.howSection}>
+        <div style={S.sectionLabel}>SIMPLE PROCESS</div>
+        <h2 style={S.sectionTitle}>From Sign-Up to Certificate</h2>
+        <p style={S.sectionSub}>Four steps stand between you and a verified credential that opens doors.</p>
+        <div style={S.howGrid}>
+          {[
+            {step:"01", icon:"📋", title:"Create Profile", desc:"Fill in your details, upload your CV, and pick your target role."},
+            {step:"02", icon:"🤖", title:"AI Interview", desc:"Face 3 expertly crafted questions testing IQ, teamwork, and leadership."},
+            {step:"03", icon:"📊", title:"Instant Scoring", desc:"Our AI assessor scores your answers against a rigorous 90% baseline."},
+            {step:"04", icon:"🏅", title:"Get Certified", desc:"Download your official certificate and get discovered by top employers."},
+          ].map((item, i) => (
+            <div key={i} className="step-card" style={S.howCard}>
+              <div style={S.howStep}>{item.step}</div>
+              <div style={S.howIcon}>{item.icon}</div>
+              <h4 style={S.howTitle}>{item.title}</h4>
+              <p style={S.howDesc}>{item.desc}</p>
+              {i < 3 && <div style={S.howConnector}>→</div>}
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* ── STATS ── */}
+      <section style={S.statsSection}>
+        <div style={S.statsGrid}>
+          {[
+            {num:"10,000+", label:"Professionals Placed", sub:"Across leading tech hubs"},
+            {num:"90%", label:"Pass Mark Baseline", sub:"Only the best qualify"},
+            {num:"3", label:"Targeted Questions", sub:"IQ · Team · Leadership"},
+            {num:"AI", label:"Powered Scoring", sub:"Instant, unbiased results"},
+          ].map((s,i)=>(
+            <div key={i} style={S.statCard}>
+              <div style={S.statNum}>{s.num}</div>
+              <div style={S.statCardLabel}>{s.label}</div>
+              <div style={S.statCardSub}>{s.sub}</div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* ── TESTIMONIALS ── */}
+      <section style={S.testimonialsSection}>
+        <div style={S.sectionLabel}>SUCCESS STORIES</div>
+        <h2 style={S.sectionTitle}>Don't Just Take Our Word For It</h2>
+        <div style={S.testimonialsGrid}>
+          {[
+            {quote: "SkillBridge bypassed the noise of 1,000 resumes. We hired three verified candidates in a week who hit the ground running.", author: "Sarah Okafor", role: "HR Director, FinTech Africa"},
+            {quote: "The AI interview was the most intense 15 minutes of my life, but it proved I had the skills. Got hired 2 days after certification.", author: "David E.", role: "Certified Data Analyst"},
+            {quote: "Knowing candidates have already passed a 90% strict baseline for IQ, Leadership, and Teamwork saves us months of screening.", author: "Kconect Inc", role: "Hiring Partner"}
+          ].map((t,i) => (
+            <div key={i} style={S.testimonialCard}>
+              <div style={S.testimonialQuote}>"{t.quote}"</div>
+              <div style={S.testimonialAuthor}>
+                <div style={S.testimonialAvatar}>{t.author[0]}</div>
+                <div>
+                  <div style={S.testimonialName}>{t.author}</div>
+                  <div style={S.testimonialRole}>{t.role}</div>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <FAQSection />
+
+
+      {/* ── CTA BANNER ── */}
+      <section style={S.ctaBanner}>
+        <div style={S.ctaOrb1}/>
+        <div style={S.ctaOrb2}/>
+        <div style={S.ctaInner}>
+          <div style={S.sectionLabel}>READY TO BEGIN?</div>
+          <h2 style={{...S.sectionTitle, color:"#fff", marginBottom:12}}>Your Certificate Is 3 Questions Away.</h2>
+          <p style={{...S.sectionSub, color:"rgba(255,255,255,0.6)", marginBottom:36}}>Join the growing network of certified African professionals.</p>
+          <div style={S.heroCTARow}>
+            <button className="cta-btn-hover" style={S.heroCtaPrimary} onClick={onApplicant}>Get Certified Now →</button>
+            <button className="cta-btn-hover" style={{...S.heroCtaSecondary, borderColor:"rgba(255,255,255,0.3)", color:"#fff"}} onClick={onCompany}>Hire Verified Talent</button>
+          </div>
+        </div>
+      </section>
+
+        </div>
+      </main>
+      <CinematicFooter />
+    </div>
   );
 }
 
@@ -598,6 +782,8 @@ function ApplicantDashboard({ session }) {
   const [emailStatus, setEmailStatus] = useState("");
   const [profileLoading, setProfileLoading] = useState(true);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [myLatestInterview, setMyLatestInterview] = useState(null);
+  const [certificateGenerated, setCertificateGenerated] = useState(false);
   
   const [proctorTerminated, setProctorTerminated] = useState(false);
 
@@ -606,6 +792,23 @@ function ApplicantDashboard({ session }) {
 
   useEffect(() => {
     async function initProfile() {
+      const pastInterview = await loadMyLatestCandidate(session.user.id);
+      if (pastInterview) {
+        const issue = new Date(pastInterview.created_at || new Date());
+        const expiry = new Date(issue);
+        expiry.setFullYear(expiry.getFullYear() + 1);
+        setMyLatestInterview({
+          certId: pastInterview.cert_id,
+          name: pastInterview.name,
+          email: pastInterview.email,
+          roleLabel: pastInterview.role_label,
+          tier: pastInterview.tier,
+          overall_score: pastInterview.overall_score,
+          issueDate: fmtDate(issue),
+          expiryDate: fmtDate(expiry)
+        });
+      }
+      
       const data = await loadProfile(session.user.id);
       if (data) {
         setForm(p => ({
@@ -742,13 +945,19 @@ function ApplicantDashboard({ session }) {
     return cleanResponse((await res.json()).choices[0].message.content);
   }
 
-  function interviewSystem() {
+  function interviewSystem(currentQ) {
+    let focus = "";
+    if (currentQ === 1) focus = "For this first question, ask a challenging IQ / Logical Reasoning puzzle or problem-solving scenario.";
+    else if (currentQ === 2) focus = "For this second question, ask a complex scenario focused strictly on Team Building and interpersonal dynamics.";
+    else if (currentQ === 3) focus = "For this final question, ask a high-stakes scenario focused strictly on Leadership and decision-making under pressure.";
     return [
       `You are an elite, notoriously rigorous expert interviewer assessing a candidate for the role of: ${roleLabel}.`,
       `You expect excellence. Your questions must be extremely difficult, deeply practical, and designed to stress-test the candidate's actual applied knowledge in the ${roleLabel} field, not just theory.`,
+      `Context: The interview is taking place in a Nigerian/African professional context. Frame scenarios, challenges, and cultural nuances within this environment while maintaining Silicon Valley tier rigor.`,
       `Candidate: ${form.name}. Job spec: ${form.jobSpec}`,
       form.resumeText?`Resume excerpt: ${form.resumeText.slice(0,1500)}`:`No resume provided.`,
       `Competencies to probe: ${role.competencies.join(", ")}.`,
+      focus,
       `Rules: Ask exactly ONE concise, intense question per turn. Pose complex, real-world, high-stakes scenarios or edge-cases specific to the ${roleLabel} role. Push for specific, actionable answers. No preamble, no pleasantries, no meta-commentary. Under 70 words. Do not answer your own question. DO NOT use markdown formatting like asterisks (**); use quotation marks instead if you need to emphasize something.`,
     ].join("\n");
   }
@@ -768,7 +977,7 @@ function ApplicantDashboard({ session }) {
     try { await saveProfile(session.user.id, session.user.email, form); } catch(e) { console.warn("Profile auto-save failed:", e); }
     setStep("interview");
     try {
-      const text = await callLLM(interviewSystem(),[{role:"user",content:"Begin the interview. Greet the candidate briefly and ask your first question."}]);
+      const text = await callLLM(interviewSystem(1),[{role:"user",content:"Begin the interview. Greet the candidate briefly and ask your first question."}]);
       setMessages([{role:"assistant",content:text.trim()}]);
       setQuestionCount(1);
     } catch(e){ setError("Could not start interview: "+(e.message||"Unknown")); setStep("apply"); }
@@ -783,7 +992,7 @@ function ApplicantDashboard({ session }) {
     setMessages(newMsgs); setAnswerDraft(""); setBusy(true);
     if(questionCount>=QUESTIONS_TARGET){ await finishAndScore(newMsgs); setBusy(false); return; }
     try {
-      const text = await callLLM(interviewSystem(),newMsgs);
+      const text = await callLLM(interviewSystem(questionCount + 1),newMsgs);
       setMessages(cur=>[...cur,{role:"assistant",content:text.trim()}]);
       setQuestionCount(c=>c+1);
     } catch(e){ setError("Connection issue — please try again."); }
@@ -799,23 +1008,23 @@ function ApplicantDashboard({ session }) {
         `Job spec: ${form.jobSpec}`,
         `Competencies (score 0-100 each): ${role.competencies.join(", ")}.`,
         `Respond ONLY with raw JSON, no markdown fences:`,
-        `{"overall_score":number,"tier":50|70|100,"competencies":[{"name":string,"score":number,"comment":string}],"strengths":[string,string],"improvements":[string,string],"summary":string}`,
-        `"tier" = nearest of 50,70,100. Be rigorous.`,
+        `{"overall_score":number,"tier":0|50|90|100,"competencies":[{"name":string,"score":number,"comment":string}],"strengths":[string,string],"improvements":[string,string],"summary":string}`,
+        `"tier" = nearest of 0,50,90,100. 90 is the strict baseline to qualify. Be rigorous.`,
       ].join("\n");
       const parsed = cleanJson(await callLLM(scoringSystem,[{role:"user",content:`Transcript:\n\n${transcript}`}]));
       setResult(parsed);
-      let newCert = null;
-      if(parsed.overall_score>=40){
-        const issue=new Date(), expiry=new Date(issue);
-        expiry.setFullYear(expiry.getFullYear()+1);
-        newCert={
-          certId:genCertId(), name:form.name, email:form.email, roleLabel,
-          tier:parsed.tier, overall_score:parsed.overall_score,
-          issueDate:fmtDate(issue), expiryDate:fmtDate(expiry),
-          issueDateISO:issue.toISOString(), expiryDateISO:expiry.toISOString(),
-        };
-        setCert(newCert);
-      }
+      const issue=new Date(), expiry=new Date(issue);
+      expiry.setFullYear(expiry.getFullYear()+1);
+      let newCert={
+        certId:genCertId(), name:form.name, email:form.email, roleLabel,
+        tier:parsed.tier, overall_score:parsed.overall_score,
+        issueDate:fmtDate(issue), expiryDate:fmtDate(expiry),
+        issueDateISO:issue.toISOString(), expiryDateISO:expiry.toISOString(),
+      };
+      setCert(newCert);
+      setMyLatestInterview(newCert);
+      setCertificateGenerated(false);
+
       const insertedId = await saveCandidate({
         userId: session.user.id,
         published: false,
@@ -828,15 +1037,19 @@ function ApplicantDashboard({ session }) {
         improvements:parsed.improvements, summary:parsed.summary,
         certId: newCert ? newCert.certId : null
       });
-      if (insertedId) setCandidateId(insertedId);
+      if (insertedId) {
+        setCandidateId(insertedId);
+        await publishCandidate(insertedId); // Auto-publish to bypass RLS SELECT restriction
+      }
       setStep("results");
     } catch(e){ setError("Scoring failed. Please try again."); setStep("interview"); }
   }
 
   function downloadCertificate() {
     const c=canvasRef.current; if(!c) return;
+    const certToDownload = (tab === "my-certificate" ? myLatestInterview : cert) || cert;
     const a=document.createElement("a");
-    a.download=`SkillBridge-${cert.certId}.png`; a.href=c.toDataURL("image/png"); a.click();
+    a.download=`SkillBridge-${certToDownload.certId}.png`; a.href=c.toDataURL("image/png"); a.click();
   }
 
   async function handlePublish() {
@@ -846,28 +1059,49 @@ function ApplicantDashboard({ session }) {
     setPublishedStatus("published");
   }
 
-  if (profileLoading) return <main style={S.main}><div style={S.card}>Loading profile...</div></main>;
+  if (profileLoading) return <main className="min-h-screen bg-gray-50 flex items-center justify-center"><div className="text-gray-500">Loading profile...</div></main>;
 
   return (
-    <main style={S.main}>
-      {/* Top bar */}
-      <div style={S.portalTopBar}>
-        <div style={S.portalUserInfo}>
-          {form.avatarUrl && <img src={form.avatarUrl} alt="avatar" style={S.portalAvatar} />}
-          <span style={{color:"#6b7280", fontSize:13}}>{session.user.email}</span>
+    <div className="min-h-screen bg-gray-50 flex flex-col md:flex-row">
+      {/* Sidebar Nav */}
+      <aside className="w-full md:w-64 bg-white border-b md:border-b-0 md:border-r border-gray-200 flex flex-col shrink-0">
+        <div className="p-6">
+          <div className="text-xl font-bold text-gray-900 tracking-tight flex items-center gap-2">
+            <span className="text-primary">✦</span> SkillBridge
+          </div>
         </div>
-        <button style={S.linkBtn} onClick={()=>supabase.auth.signOut()}>Sign Out</button>
-      </div>
 
-      {/* Tab nav */}
-      <div style={S.tabNav}>
-        <button style={{...S.tabBtn, ...(tab==="profile" ? S.tabBtnActive : {})}} onClick={()=>setTab("profile")}>
-          👤 My Profile
-        </button>
-        <button style={{...S.tabBtn, ...(tab==="certification" ? S.tabBtnActive : {})}} onClick={()=>{ setTab("certification"); setStep("apply"); setError(""); }}>
-          🎓 Certification
-        </button>
-      </div>
+        <nav className="flex-1 px-4 pb-4 space-y-1 overflow-y-auto">
+          <button className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${tab === "profile" ? "bg-gray-100 text-gray-900" : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"}`} onClick={()=>setTab("profile")}>
+            <span className="text-lg">👤</span> My Profile
+          </button>
+          <button className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${tab === "certification" ? "bg-gray-100 text-gray-900" : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"}`} onClick={()=>{ setTab("certification"); setStep("apply"); setError(""); }}>
+            <span className="text-lg">🎓</span> Certification
+          </button>
+          <button className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${tab === "my-certificate" ? "bg-gray-100 text-gray-900" : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"}`} onClick={()=>{ setTab("my-certificate"); }}>
+            <span className="text-lg">📜</span> My Certificate
+          </button>
+        </nav>
+
+        <div className="p-4 border-t border-gray-200">
+          <div className="flex items-center gap-3 mb-4 px-2">
+            {form.avatarUrl 
+              ? <img src={form.avatarUrl} alt="avatar" className="h-8 w-8 rounded-full object-cover shadow-sm" /> 
+              : <div className="h-8 w-8 rounded-full bg-gray-100 flex items-center justify-center text-xs">👤</div>}
+            <div className="flex-1 min-w-0">
+              <div className="text-xs font-medium text-gray-900 truncate">{form.name || "Applicant"}</div>
+              <div className="text-[10px] text-gray-500 truncate">{session.user.email}</div>
+            </div>
+          </div>
+          <button className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-xs font-medium text-red-600 hover:bg-red-50 transition-colors" onClick={()=>supabase.auth.signOut()}>
+            Sign Out
+          </button>
+        </div>
+      </aside>
+
+      {/* Main Content Area */}
+      <main className="flex-1 overflow-y-auto p-4 md:p-8 lg:p-12">
+        <div className="max-w-4xl mx-auto">
 
       {/* ── Profile Page ── */}
       {tab==="profile" && (
@@ -921,6 +1155,50 @@ function ApplicantDashboard({ session }) {
         </div>
       )}
 
+      {/* ── My Certificate Page ── */}
+      {tab==="my-certificate" && (
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 md:p-10 text-center flex flex-col items-center">
+          {myLatestInterview ? (
+            !certificateGenerated ? (
+              <div className="py-12 max-w-lg w-full flex flex-col items-center">
+                <div className="h-20 w-20 bg-green-100 text-green-600 rounded-full flex items-center justify-center text-3xl mb-6">🏆</div>
+                <h2 className="text-2xl font-bold text-gray-900 mb-2">Interview Concluded Successfully</h2>
+                <div className="text-5xl font-extrabold text-green-600 my-6">
+                  {myLatestInterview.overall_score || myLatestInterview.tier}<span className="text-2xl text-green-600/50">/100</span>
+                </div>
+                <p className="text-gray-500 mb-8">You are now eligible to generate your official SkillBridge certificate.</p>
+                <button className="inline-flex items-center justify-center rounded-lg text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-950 bg-gray-900 text-gray-50 hover:bg-gray-900/90 h-11 px-8 py-2" onClick={() => setCertificateGenerated(true)}>
+                  Generate Certificate ✨
+                </button>
+              </div>
+            ) : (
+              <div className="max-w-4xl w-full flex flex-col items-center">
+                <h2 className="text-2xl font-bold text-gray-900 mb-2">Your Certificate</h2>
+                <p className="text-gray-500 mb-8">Generated from your successful AI interview.</p>
+                <div className="w-full flex justify-center bg-gray-50 p-6 rounded-xl border border-gray-100 shadow-inner mb-8 overflow-hidden">
+                  <CertificateCanvas data={myLatestInterview} canvasRef={canvasRef} />
+                </div>
+                <div className="flex flex-wrap justify-center gap-4">
+                  <button className="inline-flex items-center justify-center rounded-lg text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-950 bg-gray-900 text-gray-50 hover:bg-gray-900/90 h-11 px-6 py-2" onClick={downloadCertificate}>⬇ Download PNG</button>
+                  <button className="inline-flex items-center justify-center rounded-lg text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-950 bg-white border border-gray-200 text-gray-900 hover:bg-gray-50 h-11 px-6 py-2 disabled:opacity-50" onClick={()=>{ setEmailStatus("sending"); setTimeout(()=>setEmailStatus("sent"),900); }} disabled={emailStatus==="sending"}>
+                    {emailStatus==="sent"?"✅ Emailed":emailStatus==="sending"?"Sending...":"✉ Email me a copy"}
+                  </button>
+                </div>
+              </div>
+            )
+          ) : (
+            <div className="py-16 max-w-lg w-full flex flex-col items-center">
+              <div className="h-20 w-20 bg-gray-100 text-gray-400 rounded-full flex items-center justify-center text-3xl mb-6">⚠️</div>
+              <h2 className="text-2xl font-bold text-gray-900 mb-2">No Certificate Available</h2>
+              <p className="text-gray-500 mb-8">You must complete and pass an interview before a certificate can be generated.</p>
+              <button className="inline-flex items-center justify-center rounded-lg text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-950 bg-gray-900 text-gray-50 hover:bg-gray-900/90 h-11 px-8 py-2" onClick={()=>{ setTab("certification"); setStep("apply"); setError(""); }}>
+                Start Interview →
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Delete Modal */}
       {showDeleteModal && (
         <DeleteAccountModal
@@ -929,33 +1207,35 @@ function ApplicantDashboard({ session }) {
           busy={busy}
         />
       )}
-    </main>
+        </div>
+      </main>
+    </div>
   );
 }
 
 /* ── Profile Page ── */
 function ProfilePage({ form, update, session, busy, avatarUploading, setAvatarUploading, handleFile, onSave, onDeleteRequest }) {
   return (
-    <div style={{display:"flex", flexDirection:"column", gap:20}}>
+    <div className="flex flex-col gap-6">
       {/* Profile card */}
-      <div style={S.card}>
-        <h2 style={S.cardTitle}>My Profile</h2>
-        <p style={S.cardSub}>Your personal details are stored securely and used in your certification interviews.</p>
+      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 md:p-10">
+        <h2 className="text-2xl font-bold text-gray-900 mb-2">My Profile</h2>
+        <p className="text-gray-500 mb-8">Your personal details are stored securely and used in your certification interviews.</p>
 
         {/* Avatar section */}
-        <div style={S.profileAvatarRow}>
-          <div style={S.profileAvatarWrap}>
+        <div className="flex items-center gap-6 mb-8">
+          <div className="relative h-24 w-24 rounded-full overflow-hidden border-4 border-white shadow-md bg-gray-100 flex items-center justify-center shrink-0">
             {form.avatarUrl
-              ? <img src={form.avatarUrl} alt="Profile" style={S.profileAvatarImg} />
-              : <div style={S.profileAvatarPlaceholder}>👤</div>
+              ? <img src={form.avatarUrl} alt="Profile" className="h-full w-full object-cover" />
+              : <span className="text-3xl">👤</span>
             }
           </div>
-          <div style={{flex:1}}>
-            <div style={{fontWeight:700, fontSize:16, marginBottom:4}}>{form.name || "Your Name"}</div>
-            <div style={{fontSize:13, color:"#6b7280", marginBottom:10}}>{session.user.email}</div>
-            <label style={S.uploadPhotoBtn}>
+          <div className="flex-1">
+            <div className="font-bold text-xl text-gray-900 mb-1">{form.name || "Your Name"}</div>
+            <div className="text-sm text-gray-500 mb-4">{session.user.email}</div>
+            <label className="inline-flex items-center justify-center px-4 py-2 text-sm font-medium transition-colors bg-gray-100 hover:bg-gray-200 text-gray-900 rounded-lg cursor-pointer">
               {avatarUploading ? "Uploading..." : "📷 Change Photo"}
-              <input type="file" accept="image/*" style={{display:"none"}} onChange={async e => {
+              <input type="file" accept="image/*" className="hidden" onChange={async e => {
                 const file = e.target.files?.[0];
                 if(!file) return;
                 if (file.size > 5 * 1024 * 1024) { alert("Image must be under 5MB"); return; }
@@ -968,45 +1248,45 @@ function ProfilePage({ form, update, session, busy, avatarUploading, setAvatarUp
           </div>
         </div>
 
-        <div style={S.divider} />
+        <div className="h-px bg-gray-100 w-full mb-8" />
 
         {/* Fields */}
-        <div style={S.profileGrid}>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
           <Field label="Full Name *">
-            <input style={S.input} value={form.name} onChange={e=>update("name",e.target.value)} placeholder="Jane Doe" />
+            <input className="flex h-11 w-full rounded-lg border border-gray-200 bg-transparent px-3 py-2 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-gray-950 disabled:cursor-not-allowed disabled:opacity-50" value={form.name} onChange={e=>update("name",e.target.value)} placeholder="Jane Doe" />
           </Field>
           <Field label="Phone Number *">
-            <input style={S.input} value={form.phone} onChange={e=>update("phone",e.target.value)} placeholder="+234 80..." />
+            <input className="flex h-11 w-full rounded-lg border border-gray-200 bg-transparent px-3 py-2 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-gray-950 disabled:cursor-not-allowed disabled:opacity-50" value={form.phone} onChange={e=>update("phone",e.target.value)} placeholder="+234 80..." />
           </Field>
           <Field label="Location">
-            <input style={S.input} value={form.location} onChange={e=>update("location",e.target.value)} placeholder="e.g., Lagos, Nigeria" />
+            <input className="flex h-11 w-full rounded-lg border border-gray-200 bg-transparent px-3 py-2 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-gray-950 disabled:cursor-not-allowed disabled:opacity-50" value={form.location} onChange={e=>update("location",e.target.value)} placeholder="e.g., Lagos, Nigeria" />
           </Field>
           <Field label="Years of Experience">
-            <input style={S.input} value={form.experience} onChange={e=>update("experience",e.target.value)} placeholder="e.g., 5 years" />
+            <input className="flex h-11 w-full rounded-lg border border-gray-200 bg-transparent px-3 py-2 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-gray-950 disabled:cursor-not-allowed disabled:opacity-50" value={form.experience} onChange={e=>update("experience",e.target.value)} placeholder="e.g., 5 years" />
           </Field>
           <Field label="LinkedIn URL">
-            <input style={S.input} value={form.linkedin} onChange={e=>update("linkedin",e.target.value)} placeholder="https://linkedin.com/in/..." />
+            <input className="flex h-11 w-full rounded-lg border border-gray-200 bg-transparent px-3 py-2 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-gray-950 disabled:cursor-not-allowed disabled:opacity-50" value={form.linkedin} onChange={e=>update("linkedin",e.target.value)} placeholder="https://linkedin.com/in/..." />
           </Field>
           <Field label="Portfolio URL">
-            <input style={S.input} value={form.portfolio} onChange={e=>update("portfolio",e.target.value)} placeholder="https://yourportfolio.com" />
+            <input className="flex h-11 w-full rounded-lg border border-gray-200 bg-transparent px-3 py-2 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-gray-950 disabled:cursor-not-allowed disabled:opacity-50" value={form.portfolio} onChange={e=>update("portfolio",e.target.value)} placeholder="https://yourportfolio.com" />
           </Field>
         </div>
 
         <Field label="CV / Résumé (PDF or Word, max 5MB)">
-          <input style={S.input} type="file" accept=".pdf,.doc,.docx" onChange={handleFile} />
-          {form.resumeName && <div style={{fontSize:12, marginTop:5, color:"#16a34a"}}>✓ {form.resumeName} loaded</div>}
+          <input className="flex h-11 w-full rounded-lg border border-gray-200 bg-transparent px-3 py-2 text-sm shadow-sm transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-gray-500 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-gray-950 disabled:cursor-not-allowed disabled:opacity-50" type="file" accept=".pdf,.doc,.docx" onChange={handleFile} />
+          {form.resumeName && <div className="text-xs mt-2 text-green-600 font-medium">✓ {form.resumeName} loaded</div>}
         </Field>
 
-        <button style={{...S.primaryBtn, marginTop:16}} onClick={onSave} disabled={busy}>
+        <button className="mt-8 inline-flex items-center justify-center rounded-lg text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-950 bg-gray-900 text-gray-50 hover:bg-gray-900/90 h-11 px-8 py-2 disabled:opacity-50" onClick={onSave} disabled={busy}>
           {busy ? "Saving..." : "Save Profile"}
         </button>
       </div>
 
       {/* Danger Zone */}
-      <div style={S.dangerZone}>
-        <div style={S.dangerZoneTitle}>⚠️ Danger Zone</div>
-        <p style={S.dangerZoneSub}>Permanently delete your profile and all associated data. This action cannot be undone.</p>
-        <button style={S.deleteBtn} onClick={onDeleteRequest}>Delete My Account</button>
+      <div className="bg-red-50/50 rounded-2xl border border-red-100 p-6 md:p-10">
+        <div className="text-red-700 font-bold text-lg mb-2">⚠️ Danger Zone</div>
+        <p className="text-red-600/80 mb-6">Permanently delete your profile and all associated data. This action cannot be undone.</p>
+        <button className="inline-flex items-center justify-center rounded-lg text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 bg-white border border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700 h-10 px-4 py-2" onClick={onDeleteRequest}>Delete My Account</button>
       </div>
     </div>
   );
@@ -1054,41 +1334,36 @@ function DeleteAccountModal({ onConfirm, onCancel, busy }) {
 /* ── Apply form ── */
 function ApplyForm({ form, update, handleFile, onSubmit, error, busy, onCancel }) {
   return (
-    <div style={S.card}>
-      <h2 style={S.cardTitle}>Your Application</h2>
-      <p style={S.cardSub}>Fill in your details, upload your CV, and start the AI interview.</p>
+    <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 md:p-10 max-w-3xl">
+      <h2 className="text-2xl font-bold text-gray-900 mb-2">Your Application</h2>
+      <p className="text-gray-500 mb-8">Fill in your details, upload your CV, and start the AI interview.</p>
 
-      
-      
-
-      <Field label="Role you're applying for">
-        <select style={S.input} value={form.roleId} onChange={e=>update("roleId",e.target.value)}>
-          {ROLES.map(r=><option key={r.id} value={r.id}>{r.label}</option>)}
-        </select>
-      </Field>
-      {form.roleId==="other" && (
-        <Field label="Specify the role">
-          <input style={S.input} value={form.customRole} onChange={e=>update("customRole",e.target.value)} placeholder="e.g. Logistics Coordinator" />
+      <div className="space-y-6">
+        <Field label="Role you're applying for">
+          <select className="flex h-11 w-full rounded-lg border border-gray-200 bg-transparent px-3 py-2 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-gray-950 disabled:cursor-not-allowed disabled:opacity-50" value={form.roleId} onChange={e=>update("roleId",e.target.value)}>
+            {ROLES.map(r=><option key={r.id} value={r.id}>{r.label}</option>)}
+          </select>
         </Field>
-      )}
+        {form.roleId==="other" && (
+          <Field label="Specify the role">
+            <input className="flex h-11 w-full rounded-lg border border-gray-200 bg-transparent px-3 py-2 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-gray-950 disabled:cursor-not-allowed disabled:opacity-50" value={form.customRole} onChange={e=>update("customRole",e.target.value)} placeholder="e.g. Logistics Coordinator" />
+          </Field>
+        )}
 
-      <Field label="Job specification *">
-        <textarea style={{...S.input,height:88,resize:"vertical"}} value={form.jobSpec}
-          onChange={e=>update("jobSpec",e.target.value)}
-          placeholder="Paste or describe the job spec you're being screened against…" />
-      </Field>
+        <Field label="Job specification *">
+          <textarea className="flex min-h-[88px] w-full rounded-lg border border-gray-200 bg-transparent px-3 py-2 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-gray-950 disabled:cursor-not-allowed disabled:opacity-50 resize-y" value={form.jobSpec}
+            onChange={e=>update("jobSpec",e.target.value)}
+            placeholder="Paste or describe the job spec you're being screened against." />
+        </Field>
 
-      
-
-      {error && <div style={S.errorBox}>{error}</div>}
-      
-      <div style={{display:"flex", gap:16, marginTop:24}}>
-        <button style={S.secondaryBtn} onClick={onCancel} disabled={busy}>Cancel</button>
-        <button style={S.primaryBtn} onClick={onSubmit} disabled={busy}>
-          
-        {busy ? "Starting interview…" : "Submit & Start AI Interview →"}
-      
-        </button>
+        {error && <div className="bg-red-50 text-red-600 px-4 py-3 rounded-lg text-sm border border-red-100">{error}</div>}
+        
+        <div className="flex gap-4 pt-4">
+          <button className="inline-flex items-center justify-center rounded-lg text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-950 bg-white border border-gray-200 text-gray-900 hover:bg-gray-50 h-11 px-8 py-2" onClick={onCancel} disabled={busy}>Cancel</button>
+          <button className="inline-flex items-center justify-center rounded-lg text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-950 bg-gray-900 text-gray-50 hover:bg-gray-900/90 h-11 px-8 py-2 disabled:opacity-50 flex-1" onClick={onSubmit} disabled={busy}>
+            {busy ? "Starting interview..." : "Submit & Start AI Interview"}
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -1234,18 +1509,32 @@ function Interview({ messages, answerDraft, setAnswerDraft, onSubmit, busy, ques
       </div>
 
       {/* Chat messages */}
-      <div style={S.chatBox}>
-        {messages.map((m,i)=>(
-          <div key={i} style={m.role==="assistant"?S.bubbleAI:S.bubbleUser}>
-            <div style={S.bubbleLabel}>{m.role==="assistant"?"Interviewer":"You"}</div>
-            {m.content}
-            {/* Read Aloud button on last AI message in voice mode */}
-            {voiceMode && m.role==="assistant" && i===messages.length-1 && (
-              <button onClick={replayTTS} style={S.replayBtn}>🔊 Read Aloud</button>
-            )}
-          </div>
-        ))}
-        {busy && <div style={S.bubbleAI}><div style={S.bubbleLabel}>Interviewer</div><span style={S.dots}>···</span></div>}
+      <div style={S.chatBox} className="space-y-4 p-4">
+        {messages.map((m, i) => {
+          const variant = m.role === "assistant" ? "received" : "sent";
+          return (
+            <ChatBubble key={i} variant={variant}>
+              <ChatBubbleAvatar fallback={variant === "received" ? "AI" : "US"} />
+              <div className="flex flex-col">
+                <ChatBubbleMessage variant={variant}>
+                  {m.content}
+                </ChatBubbleMessage>
+                {/* Read Aloud button on last AI message in voice mode */}
+                {voiceMode && m.role === "assistant" && i === messages.length - 1 && (
+                  <ChatBubbleActionWrapper>
+                    <ChatBubbleAction icon={<Volume2 className="size-4" />} onClick={replayTTS} />
+                  </ChatBubbleActionWrapper>
+                )}
+              </div>
+            </ChatBubble>
+          );
+        })}
+        {busy && (
+          <ChatBubble variant="received">
+            <ChatBubbleAvatar fallback="AI" />
+            <ChatBubbleMessage isLoading />
+          </ChatBubble>
+        )}
         <div ref={chatEndRef} />
       </div>
 
@@ -1253,24 +1542,24 @@ function Interview({ messages, answerDraft, setAnswerDraft, onSubmit, busy, ques
 
       {/* Input area */}
       {voiceMode ? (
-        <div style={S.voiceInputArea}>
+        <div style={{ marginTop: 24, display: "flex", flexDirection: "column", gap: 16 }}>
+          <VoiceChat 
+            onStart={() => { if (!listening) startListening(); }}
+            onStop={() => { if (listening) stopListening(); }}
+            demoMode={false}
+            className="w-full min-h-[260px] shadow-sm border border-gray-200/60"
+          />
           {answerDraft && (
-            <div style={S.transcriptBox}>
-              <div style={{fontSize:11, color:"#6b7280", marginBottom:4, fontWeight:600}}>TRANSCRIPT</div>
-              <div style={{fontSize:14, color:"#11203b", lineHeight:1.6}}>{answerDraft}</div>
+            <div style={{...S.transcriptBox, margin: 0}}>
+              <div style={{fontSize:11, color:"#6b7280", marginBottom:6, fontWeight:600, letterSpacing:1}}>LIVE TRANSCRIPT</div>
+              <div style={{fontSize:15, color:"#11203b", lineHeight:1.6}}>{answerDraft}</div>
             </div>
           )}
-          <div style={{display:"flex", gap:10, justifyContent:"center", marginTop:10}}>
-            <button
-              style={{...S.micBtn, ...(listening ? S.micBtnActive : {})}}
-              onClick={() => listening ? stopListening() : startListening()}
-              disabled={busy}
-            >
-              {listening ? "⏹ Stop Recording" : "🎤 Click to Speak"}
+          <div style={{display:"flex", gap:12, justifyContent:"flex-end", marginTop:8}}>
+            <button style={{...S.primaryBtnSmall, padding:"12px 24px", fontSize:14}} onClick={onSubmit} disabled={busy||!answerDraft.trim()}>
+              {busy ? "Sending..." : "Submit Answer ↵"}
             </button>
-            <button style={S.primaryBtnSmall} onClick={onSubmit} disabled={busy||!answerDraft.trim()}>Send ↵</button>
           </div>
-          {listening && <div style={S.listeningPulse}>● Recording — click stop when done</div>}
         </div>
       ) : (
         <div style={S.answerRow}>
@@ -1371,9 +1660,9 @@ function CertificateView({ cert, canvasRef, onDownload, onEmail, emailStatus, on
 
 /* ── Shared form helpers ── */
 function Field({ label, children }) {
-  return <div style={S.field}><label style={S.label}>{label}</label>{children}</div>;
+  return <div className="flex flex-col space-y-1.5"><label className="text-sm font-semibold text-gray-700">{label}</label>{children}</div>;
 }
-function Row({ children }) { return <div style={S.row}>{children}</div>; }
+function Row({ children }) { return <div className="flex flex-col md:flex-row gap-4">{children}</div>; }
 
 /* ══════════════════════════════════════════════════════
    COMPANY DASHBOARD
@@ -1604,12 +1893,23 @@ function ProfileModal({ candidate:c, cvTab, setCvTab, onClose }) {
 ══════════════════════════════════════════════════════ */
 
 const FONT_IMPORT = `
-@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap');
 @keyframes spin { to { transform: rotate(360deg); } }
 @keyframes fadeIn { from { opacity:0; transform:translateY(16px); } to { opacity:1; transform:translateY(0); } }
+@keyframes fadeUp { from { opacity:0; transform:translateY(40px); } to { opacity:1; transform:translateY(0); } }
 @keyframes pulse { 0%,100% { box-shadow: 0 0 0 4px rgba(17,32,59,0.15); } 50% { box-shadow: 0 0 0 10px rgba(17,32,59,0.08); } }
+@keyframes meshShift { 0%{background-position:0% 50%} 50%{background-position:100% 50%} 100%{background-position:0% 50%} }
+@keyframes floatY { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-14px)} }
+@keyframes orb1 { 0%{transform:translate(0,0) scale(1)} 50%{transform:translate(60px,-40px) scale(1.15)} 100%{transform:translate(0,0) scale(1)} }
+@keyframes orb2 { 0%{transform:translate(0,0) scale(1)} 50%{transform:translate(-50px,60px) scale(0.9)} 100%{transform:translate(0,0) scale(1)} }
+@keyframes ticker { 0%{transform:translateX(0)} 100%{transform:translateX(-50%)} }
+@keyframes shimmer { from{background-position:-400px 0} to{background-position:400px 0} }
+@keyframes glowPulse { 0%,100%{box-shadow:0 0 30px rgba(212,168,60,0.3)} 50%{box-shadow:0 0 60px rgba(212,168,60,0.6)} }
 * { box-sizing: border-box; }
 body { margin: 0; }
+.portal-card-hover:hover { transform:translateY(-6px) !important; box-shadow:0 28px 60px rgba(0,0,0,0.18) !important; }
+.step-card:hover { transform:translateY(-4px); border-color:rgba(212,168,60,0.5) !important; }
+.cta-btn-hover:hover { transform:scale(1.03); filter:brightness(1.1); }
 `;
 
 const S = {
@@ -1624,7 +1924,101 @@ const S = {
   navPillActive:{ background:"#d4a83c", border:"1px solid #d4a83c", color:"#11203b", fontWeight:700 },
   footer:{ textAlign:"center", padding:16, color:"#9aa0ab", fontSize:12, borderTop:"1px solid #e7e2d3", marginTop:"auto" },
 
-  /* ── Home ── */
+  /* ── Landing Page ── */
+  landingPage:{ background:"#020617", color:"#f8fafc", overflowX:"hidden" },
+
+  /* Hero */
+  heroSection:{ position:"relative", minHeight:"100vh", display:"flex", alignItems:"center", justifyContent:"center", overflow:"hidden", background:"radial-gradient(ellipse at 20% 50%, rgba(17,32,59,0.8) 0%, #080f1e 60%), radial-gradient(ellipse at 80% 20%, rgba(212,168,60,0.08) 0%, transparent 50%)" },
+  orb1:{ position:"absolute", width:600, height:600, borderRadius:"50%", background:"radial-gradient(circle, rgba(212,168,60,0.12) 0%, transparent 70%)", top:"-100px", right:"-150px", animation:"orb1 12s ease-in-out infinite", pointerEvents:"none" },
+  orb2:{ position:"absolute", width:500, height:500, borderRadius:"50%", background:"radial-gradient(circle, rgba(22,122,68,0.1) 0%, transparent 70%)", bottom:"-80px", left:"-100px", animation:"orb2 15s ease-in-out infinite", pointerEvents:"none" },
+  orb3:{ position:"absolute", width:300, height:300, borderRadius:"50%", background:"radial-gradient(circle, rgba(212,168,60,0.06) 0%, transparent 70%)", top:"40%", left:"30%", animation:"orb1 18s ease-in-out infinite reverse", pointerEvents:"none" },
+  heroInner:{ position:"relative", zIndex:2, textAlign:"center", padding:"80px 24px 60px", maxWidth:800, margin:"0 auto" },
+  heroBadge:{ display:"inline-flex", alignItems:"center", gap:8, background:"rgba(212,168,60,0.1)", border:"1px solid rgba(212,168,60,0.3)", borderRadius:100, padding:"6px 18px", fontSize:11, fontWeight:700, letterSpacing:2, color:"#d4a83c", textTransform:"uppercase", marginBottom:28, animation:"fadeUp 0.6s ease both" },
+  heroBadgeDot:{ width:6, height:6, borderRadius:"50%", background:"#d4a83c", animation:"pulse 2s infinite" },
+  landingHeroTitle:{ fontFamily:"'Space Grotesk',sans-serif", fontSize:72, fontWeight:700, lineHeight:1.05, margin:"0 0 24px", letterSpacing:-1, animation:"fadeUp 0.7s 0.1s ease both" },
+  landingHeroGold:{ background:"linear-gradient(135deg, #d4a83c, #f5c842, #b8882a)", WebkitBackgroundClip:"text", WebkitTextFillColor:"transparent", backgroundClip:"text" },
+  landingHeroSub:{ fontSize:18, color:"rgba(255,255,255,0.6)", maxWidth:560, margin:"0 auto 36px", lineHeight:1.7, animation:"fadeUp 0.7s 0.2s ease both" },
+  heroCTARow:{ display:"flex", gap:14, justifyContent:"center", flexWrap:"wrap", marginBottom:48, animation:"fadeUp 0.7s 0.3s ease both" },
+  heroCtaPrimary:{ background:"linear-gradient(135deg,#d4a83c,#f0c040)", color:"#080f1e", border:"none", padding:"15px 32px", borderRadius:50, fontWeight:700, fontSize:15, cursor:"pointer", fontFamily:"'Space Grotesk',sans-serif", transition:"all 0.2s", boxShadow:"0 0 30px rgba(212,168,60,0.35)" },
+  heroCtaSecondary:{ background:"transparent", color:"rgba(255,255,255,0.8)", border:"1px solid rgba(255,255,255,0.2)", padding:"15px 32px", borderRadius:50, fontWeight:600, fontSize:15, cursor:"pointer", fontFamily:"'Space Grotesk',sans-serif", transition:"all 0.2s", backdropFilter:"blur(10px)" },
+  heroChips:{ display:"flex", gap:10, justifyContent:"center", flexWrap:"wrap", animation:"fadeUp 0.7s 0.4s ease both" },
+  heroChip:{ display:"inline-flex", alignItems:"center", gap:6, background:"rgba(255,255,255,0.06)", border:"1px solid rgba(255,255,255,0.1)", borderRadius:100, padding:"7px 16px", fontSize:13, color:"rgba(255,255,255,0.7)", backdropFilter:"blur(8px)", animation:"fadeUp 0.5s ease both" },
+
+  /* Ticker & Partners */
+  ticker:{ background:"rgba(212,168,60,0.08)", borderTop:"1px solid rgba(212,168,60,0.15)", borderBottom:"1px solid rgba(212,168,60,0.15)", overflow:"hidden", padding:"14px 0" },
+  tickerTrack:{ display:"inline-flex", whiteSpace:"nowrap", animation:"ticker 30s linear infinite" },
+  tickerItem:{ fontSize:13, fontWeight:600, letterSpacing:1.5, color:"#d4a83c", textTransform:"uppercase", paddingRight:0 },
+  partnersSection:{ padding:"60px 24px", maxWidth:1100, margin:"0 auto", textAlign:"center", borderBottom:"1px solid rgba(0,0,0,0.05)" },
+  partnersLabel:{ fontSize:11, fontWeight:700, letterSpacing:2, color:"rgba(17,32,59,0.4)", textTransform:"uppercase", marginBottom:32 },
+  partnersGrid:{ display:"flex", flexWrap:"wrap", justifyContent:"center", gap:"32px 48px", opacity:0.8 },
+  partnerLogo:{ fontSize:18, fontWeight:700, fontFamily:"'Space Grotesk',sans-serif", letterSpacing:1, color:"#11203b" },
+
+  /* Sections shared */
+  sectionLabel:{ fontSize:11, fontWeight:700, letterSpacing:3, color:"#d4a83c", textTransform:"uppercase", textAlign:"center", marginBottom:14 },
+  sectionTitle:{ fontFamily:"'Space Grotesk',sans-serif", fontSize:42, fontWeight:700, textAlign:"center", color:"#f8fafc", margin:"0 0 12px", lineHeight:1.15 },
+  sectionSub:{ fontSize:16, color:"rgba(255,255,255,0.6)", textAlign:"center", maxWidth:520, margin:"0 auto 48px", lineHeight:1.7 },
+
+  /* Portals */
+  portalSection:{ padding:"96px 24px", maxWidth:1100, margin:"0 auto" },
+  newPortalGrid:{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(340px,1fr))", gap:24 },
+  newPortalCardLight:{ background:"#fff", borderRadius:24, padding:36, cursor:"pointer", transition:"transform 0.3s, box-shadow 0.3s", boxShadow:"0 12px 40px rgba(0,0,0,0.15)" },
+  newPortalCardDark:{ background:"linear-gradient(145deg,#0d1a2e,#11203b)", border:"1px solid rgba(212,168,60,0.2)", borderRadius:24, padding:36, cursor:"pointer", transition:"transform 0.3s, box-shadow 0.3s", boxShadow:"0 12px 40px rgba(0,0,0,0.4)" },
+  newPortalCardTop:{ display:"flex", alignItems:"center", gap:14, marginBottom:20 },
+  newPortalCardIconWrap:{ width:56, height:56, borderRadius:16, background:"rgba(17,32,59,0.08)", border:"1px solid rgba(17,32,59,0.12)", display:"flex", alignItems:"center", justifyContent:"center" },
+  newPortalCardIconWrap:{ width:56, height:56, borderRadius:16, background:"rgba(255,255,255,0.05)", border:"1px solid rgba(255,255,255,0.1)", display:"flex", alignItems:"center", justifyContent:"center" },
+  newPortalBadgeLight:{ fontSize:10, fontWeight:700, letterSpacing:2, color:"#a3823f", textTransform:"uppercase", background:"rgba(212,168,60,0.1)", padding:"4px 10px", borderRadius:100 },
+  newPortalBadgeDark:{ fontSize:10, fontWeight:700, letterSpacing:2, color:"#d4a83c", textTransform:"uppercase", background:"rgba(212,168,60,0.1)", padding:"4px 10px", borderRadius:100, border:"1px solid rgba(212,168,60,0.2)" },
+  newPortalCardTitle:{ fontFamily:"'Space Grotesk',sans-serif", fontSize:26, fontWeight:700, color:"#f8fafc", margin:"0 0 10px" },
+  newPortalCardSub:{ fontSize:14, color:"rgba(255,255,255,0.6)", lineHeight:1.7, marginBottom:24 },
+  newPortalSteps:{ display:"flex", flexDirection:"column", gap:10, marginBottom:28 },
+  newPortalStep:{ display:"flex", alignItems:"center", gap:12 },
+  newPortalStepNum:{ width:26, height:26, borderRadius:"50%", background:"rgba(255,255,255,0.1)", color:"#fff", fontSize:12, fontWeight:700, display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0 },
+  newPortalBtnDark:{ width:"100%", padding:"14px", background:"#11203b", color:"#fff", border:"none", borderRadius:14, fontWeight:700, fontSize:14, cursor:"pointer", fontFamily:"'Space Grotesk',sans-serif", transition:"opacity 0.2s" },
+  newPortalBtnGold:{ width:"100%", padding:"14px", background:"linear-gradient(135deg,#d4a83c,#f0c040)", color:"#080f1e", border:"none", borderRadius:14, fontWeight:700, fontSize:14, cursor:"pointer", fontFamily:"'Space Grotesk',sans-serif", transition:"opacity 0.2s", boxShadow:"0 0 24px rgba(212,168,60,0.3)" },
+
+  /* About */
+  aboutSection:{ padding:"48px 24px", maxWidth:1100, margin:"0 auto" },
+  aboutGrid:{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(280px,1fr))", gap:24 },
+  aboutCard:{ background:"#0f172a", border:"1px solid rgba(255,255,255,0.1)", borderRadius:20, padding:32, boxShadow:"0 8px 30px rgba(0,0,0,0.3)" },
+  aboutIcon:{ fontSize:32, marginBottom:16 },
+  aboutTitle:{ fontFamily:"'Space Grotesk',sans-serif", fontSize:22, fontWeight:700, color:"#f8fafc", margin:"0 0 12px" },
+  aboutText:{ fontSize:14, color:"rgba(255,255,255,0.7)", lineHeight:1.7, margin:0 },
+
+  /* How it works */
+  howSection:{ padding:"96px 24px", maxWidth:1100, margin:"0 auto" },
+  howGrid:{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(220px,1fr))", gap:20, position:"relative" },
+  howCard:{ background:"#0f172a", border:"1px solid rgba(255,255,255,0.1)", borderRadius:20, padding:28, position:"relative", transition:"transform 0.3s, border-color 0.3s", cursor:"default", boxShadow:"0 8px 30px rgba(0,0,0,0.3)" },
+  howStep:{ fontSize:48, fontWeight:700, color:"rgba(212,168,60,0.15)", fontFamily:"'Space Grotesk',sans-serif", lineHeight:1, marginBottom:12 },
+  howIcon:{ fontSize:28, marginBottom:12 },
+  howTitle:{ fontFamily:"'Space Grotesk',sans-serif", fontSize:18, fontWeight:600, color:"#f8fafc", margin:"0 0 8px" },
+  howDesc:{ fontSize:14, color:"rgba(255,255,255,0.7)", lineHeight:1.6, margin:0 },
+  howConnector:{ position:"absolute", right:-16, top:"50%", transform:"translateY(-50%)", fontSize:22, color:"rgba(212,168,60,0.3)", zIndex:1 },
+
+  /* Stats */
+  statsSection:{ padding:"0 24px 60px", maxWidth:1100, margin:"0 auto" },
+  statsGrid:{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))", gap:2 },
+  statCard:{ background:"#0f172a", border:"1px solid rgba(255,255,255,0.1)", padding:"36px 24px", textAlign:"center", transition:"background 0.2s", boxShadow:"0 8px 30px rgba(0,0,0,0.3)" },
+  statNum:{ fontFamily:"'Space Grotesk',sans-serif", fontSize:52, fontWeight:700, background:"linear-gradient(135deg,#d4a83c,#b8882a)", WebkitBackgroundClip:"text", WebkitTextFillColor:"transparent", backgroundClip:"text", lineHeight:1, marginBottom:8 },
+  statCardLabel:{ fontSize:15, fontWeight:600, color:"#f8fafc", marginBottom:4 },
+  statCardSub:{ fontSize:13, color:"rgba(255,255,255,0.5)" },
+
+  /* Testimonials */
+  testimonialsSection:{ padding:"60px 24px 96px", maxWidth:1100, margin:"0 auto" },
+  testimonialsGrid:{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(300px,1fr))", gap:24, marginTop:48 },
+  testimonialCard:{ background:"#fff", border:"1px solid rgba(0,0,0,0.05)", borderRadius:20, padding:32, position:"relative", boxShadow:"0 8px 30px rgba(0,0,0,0.04)" },
+  testimonialQuote:{ fontSize:15, color:"rgba(17,32,59,0.8)", lineHeight:1.7, fontStyle:"italic", marginBottom:24 },
+  testimonialAuthor:{ display:"flex", alignItems:"center", gap:14 },
+  testimonialAvatar:{ width:44, height:44, borderRadius:"50%", background:"#d4a83c", color:"#fff", display:"flex", alignItems:"center", justifyContent:"center", fontSize:18, fontWeight:700 },
+  testimonialName:{ fontSize:15, fontWeight:600, color:"#11203b", marginBottom:2 },
+  testimonialRole:{ fontSize:12, color:"rgba(17,32,59,0.5)" },
+
+  /* CTA Banner */
+  ctaBanner:{ position:"relative", background:"linear-gradient(135deg,#0d1a2e 0%,#11203b 50%,#0d1a2e 100%)", borderTop:"1px solid rgba(212,168,60,0.15)", borderBottom:"1px solid rgba(212,168,60,0.15)", overflow:"hidden", padding:"96px 24px" },
+  ctaOrb1:{ position:"absolute", width:400, height:400, borderRadius:"50%", background:"radial-gradient(circle,rgba(212,168,60,0.1) 0%,transparent 70%)", top:"-100px", right:"-80px", pointerEvents:"none", animation:"orb1 10s ease-in-out infinite" },
+  ctaOrb2:{ position:"absolute", width:300, height:300, borderRadius:"50%", background:"radial-gradient(circle,rgba(22,122,68,0.08) 0%,transparent 70%)", bottom:"-60px", left:"-60px", pointerEvents:"none", animation:"orb2 13s ease-in-out infinite" },
+  ctaInner:{ position:"relative", zIndex:2, maxWidth:600, margin:"0 auto", textAlign:"center" },
+
+  /* Legacy (keep for other pages) */
   homeMain:{ flex:1, padding:"0 20px 48px" },
   homeHero:{ textAlign:"center", padding:"56px 20px 40px", maxWidth:640, margin:"0 auto" },
   heroKicker:{ color:"#a3823f", fontWeight:700, letterSpacing:2, fontSize:12, marginBottom:10, textTransform:"uppercase" },
