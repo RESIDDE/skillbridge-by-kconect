@@ -763,6 +763,14 @@ export function Bucket({ onOpenFullFaq }: BucketProps) {
               <stop offset="1" stopColor="white" stopOpacity="0.2" />
             </linearGradient>
           </defs>
+          {/* Back panel of the box rendered behind the items */}
+          <g filter="url(#filter0_i_51_65)">
+            <path
+              d="M512.766 79.1595L147.766 79.1624C136.453 79.1625 130.796 79.1626 127.281 82.6773C123.766 86.192 123.766 91.8488 123.766 103.162V327.159C123.766 338.473 123.766 344.13 127.281 347.645C130.796 351.159 136.453 351.159 147.766 351.159H512.766C524.08 351.159 529.737 351.159 533.252 347.645C536.766 344.13 536.766 338.473 536.766 327.159V103.159C536.766 91.8457 536.766 86.1888 533.252 82.6741C529.737 79.1594 524.08 79.1594 512.766 79.1595Z"
+              fill="#ffffff"
+              fillOpacity="1"
+            />
+          </g>
         </svg>
 
         <div className="absolute inset-0 z-10 flex items-center justify-center pointer-events-none">
@@ -846,21 +854,14 @@ export function Bucket({ onOpenFullFaq }: BucketProps) {
             transform: "translate3d(0, 0, 0)",
           }}
         >
-          {/* Top Layer Part 1: filter0 */}
-          <g filter="url(#filter0_i_51_65)">
-            <path
-              d="M512.766 79.1595L147.766 79.1624C136.453 79.1625 130.796 79.1626 127.281 82.6773C123.766 86.192 123.766 91.8488 123.766 103.162V327.159C123.766 338.473 123.766 344.13 127.281 347.645C130.796 351.159 136.453 351.159 147.766 351.159H512.766C524.08 351.159 529.737 351.159 533.252 347.645C536.766 344.13 536.766 338.473 536.766 327.159V103.159C536.766 91.8457 536.766 86.1888 533.252 82.6741C529.737 79.1594 524.08 79.1594 512.766 79.1595Z"
-              fill="#020617"
-              fillOpacity="0.45"
-            />
-          </g>
+          {/* Back panel removed from here to prevent overlay blocking the items */}
 
           {/* FAQ text labeled directly on the box body */}
           <text
             x="327.5"
             y="250"
             textAnchor="middle"
-            fill="rgba(168, 85, 247, 0.15)"
+            fill="rgba(168, 85, 247, 0.22)"
             style={{
               fontFamily: "'Space Grotesk', sans-serif",
               fontSize: "64px",

@@ -335,192 +335,190 @@ function HomePage({ onApplicant, onCompany }) {
   }, []);
 
   return (
-    <div className="relative w-full min-h-screen overflow-x-hidden bg-background">
-      <main className="relative z-10 w-full bg-[#020617] rounded-b-[40px] shadow-2xl mb-[-1px]">
+    <div className="relative w-full min-h-screen overflow-x-hidden bg-[#020617]">
+      {/* ─── DARK SECTION: HERO & MAP ─── */}
+      <main className="relative z-10 w-full bg-[#020617] mb-[-1px]">
         <div style={S.landingPage}>
-      {/* ═══ AETHER FLOW HERO (particle canvas + headline + CTAs) ═══ */}
-      <AetherFlowHero onApplicant={onApplicant} onCompany={onCompany} />
+          {/* ═══ AETHER FLOW HERO (particle canvas + headline + CTAs) ═══ */}
+          <AetherFlowHero onApplicant={onApplicant} onCompany={onCompany} />
 
-      {/* ═══ WORLD MAP ═══ */}
-      <div className="relative w-full" style={{minHeight: '55vh', background: '#020617'}}>
-        <div className="absolute inset-x-0 top-0 h-32 z-10 pointer-events-none" style={{background:'linear-gradient(to bottom, #020617, transparent)'}} />
-        <div className="absolute inset-x-0 bottom-0 h-32 z-10 pointer-events-none" style={{background:'linear-gradient(to top, #020617, transparent)'}} />
-        <WorldMap
-          dots={[
-            { start: { lat: 64.2008, lng: -149.4937, label: "Fairbanks" }, end: { lat: 34.0522, lng: -118.2437, label: "Los Angeles" } },
-            { start: { lat: 64.2008, lng: -149.4937, label: "Fairbanks" }, end: { lat: -15.7975, lng: -47.8919, label: "Brasília" } },
-            { start: { lat: -15.7975, lng: -47.8919, label: "Brasília" }, end: { lat: 38.7223, lng: -9.1393, label: "Lisbon" } },
-            { start: { lat: 51.5074, lng: -0.1278, label: "London" }, end: { lat: 28.6139, lng: 77.209, label: "New Delhi" } },
-            { start: { lat: 28.6139, lng: 77.209, label: "New Delhi" }, end: { lat: 43.1332, lng: 131.9113, label: "Vladivostok" } },
-            { start: { lat: 28.6139, lng: 77.209, label: "New Delhi" }, end: { lat: -1.2921, lng: 36.8219, label: "Nairobi" } },
-            { start: { lat: -1.2921, lng: 36.8219, label: "Nairobi" }, end: { lat: -26.2041, lng: 28.0473, label: "Johannesburg" } },
-            { start: { lat: 6.5244, lng: 3.3792, label: "Lagos" }, end: { lat: 51.5074, lng: -0.1278, label: "London" } },
-            { start: { lat: 6.5244, lng: 3.3792, label: "Lagos" }, end: { lat: 40.7128, lng: -74.006, label: "New York" } },
-          ]}
-        />
-      </div>
-
-
-
-      {/* ── PARTNERS ── */}
-      <section style={S.partnersSection}>
-        <div style={S.partnersLabel}>TRUSTED BY LEADING BUSINESSES ACROSS AFRICA</div>
-        <Skiper52 />
-      </section>
-
-      {/* ── PORTALS ── */}
-      <section style={S.portalSection}>
-        <div style={S.sectionLabel}>TWO POWERFUL PORTALS</div>
-        <h2 style={S.sectionTitle}>One Platform. Two Paths.</h2>
-        <p style={S.sectionSub}>Whether you're proving your skills or finding exceptional talent, SkillBridge has you covered.</p>
-
-        <div style={S.newPortalGrid}>
-          {/* Applicant */}
-          <div className="portal-card-hover" style={S.newPortalCardLight} onClick={onApplicant}>
-            <div style={S.newPortalCardTop}>
-              <div style={S.newPortalCardIconWrap}><span style={{fontSize:32}}>🎯</span></div>
-              <div style={S.newPortalBadgeLight}>APPLICANT PORTAL</div>
-            </div>
-            <h3 style={S.newPortalCardTitle}>Apply & Get Certified</h3>
-            <p style={S.newPortalCardSub}>Stop sending resumes into the void. Complete an intense, role-specific AI interview and earn a verified certificate that employers trust.</p>
-            <div style={S.newPortalSteps}>
-              {["Fill your profile & upload CV","Answer 3 AI-driven interview questions","Score 90%+ to earn your certificate"].map((s,i)=>(
-                <div key={i} style={S.newPortalStep}>
-                  <div style={S.newPortalStepNum}>{i+1}</div>
-                  <span style={{fontSize:14, color:"#3a3f4b"}}>{s}</span>
-                </div>
-              ))}
-            </div>
-            <button style={S.newPortalBtnDark}>Start My Application →</button>
+          {/* ═══ WORLD MAP ═══ */}
+          <div className="relative w-full" style={{minHeight: '55vh', background: '#020617'}}>
+            <div className="absolute inset-x-0 top-0 h-32 z-10 pointer-events-none" style={{background:'linear-gradient(to bottom, #020617, transparent)'}} />
+            <div className="absolute inset-x-0 bottom-0 h-32 z-10 pointer-events-none" style={{background:'linear-gradient(to top, #020617, transparent)'}} />
+            <WorldMap
+              dots={[
+                { start: { lat: 64.2008, lng: -149.4937, label: "Fairbanks" }, end: { lat: 34.0522, lng: -118.2437, label: "Los Angeles" } },
+                { start: { lat: 64.2008, lng: -149.4937, label: "Fairbanks" }, end: { lat: -15.7975, lng: -47.8919, label: "Brasília" } },
+                { start: { lat: -15.7975, lng: -47.8919, label: "Brasília" }, end: { lat: 38.7223, lng: -9.1393, label: "Lisbon" } },
+                { start: { lat: 51.5074, lng: -0.1278, label: "London" }, end: { lat: 28.6139, lng: 77.209, label: "New Delhi" } },
+                { start: { lat: 28.6139, lng: 77.209, label: "New Delhi" }, end: { lat: 43.1332, lng: 131.9113, label: "Vladivostok" } },
+                { start: { lat: 28.6139, lng: 77.209, label: "New Delhi" }, end: { lat: -1.2921, lng: 36.8219, label: "Nairobi" } },
+                { start: { lat: -1.2921, lng: 36.8219, label: "Nairobi" }, end: { lat: -26.2041, lng: 28.0473, label: "Johannesburg" } },
+                { start: { lat: 6.5244, lng: 3.3792, label: "Lagos" }, end: { lat: 51.5074, lng: -0.1278, label: "London" } },
+                { start: { lat: 6.5244, lng: 3.3792, label: "Lagos" }, end: { lat: 40.7128, lng: -74.006, label: "New York" } },
+              ]}
+            />
           </div>
-
-          {/* Company */}
-          <div className="portal-card-hover" style={S.newPortalCardDark} onClick={onCompany}>
-            <div style={S.newPortalCardTop}>
-              <div style={{...S.newPortalCardIconWrap, background:"rgba(212,168,60,0.15)", border:"1px solid rgba(212,168,60,0.3)"}}><span style={{fontSize:32}}>💼</span></div>
-              <div style={S.newPortalBadgeDark}>COMPANY DASHBOARD</div>
-            </div>
-            <h3 style={{...S.newPortalCardTitle, color:"#fff"}}>Search Verified Talent</h3>
-            <p style={{...S.newPortalCardSub, color:"#8fa3be"}}>Skip endless CV screening. Browse a curated pool of pre-tested, AI-scored candidates — complete with competency breakdowns and direct contact info.</p>
-            <div style={S.newPortalSteps}>
-              {["Filter by role and score threshold","View AI-generated competency breakdowns","Email or call candidates instantly"].map((s,i)=>(
-                <div key={i} style={S.newPortalStep}>
-                  <div style={{...S.newPortalStepNum, background:"#d4a83c", color:"#11203b"}}>{i+1}</div>
-                  <span style={{fontSize:14, color:"#9db3c8"}}>{s}</span>
-                </div>
-              ))}
-            </div>
-            <button style={S.newPortalBtnGold}>Open Dashboard →</button>
-          </div>
-        </div>
-      </section>
-
-      {/* ── ABOUT & MISSION ── */}
-      <section style={S.aboutSection}>
-        <div style={S.aboutGrid}>
-          <div style={S.aboutCard}>
-            <div style={S.aboutIcon}>🌍</div>
-            <h3 style={S.aboutTitle}>About Us</h3>
-            <p style={S.aboutText}>SkillBridge by kconect is redefining how talent meets opportunity. We leverage cutting-edge AI to conduct rigorous, unbiased interviews, ensuring candidates are judged purely on merit, practical skills, and cultural fit.</p>
-          </div>
-          <div style={S.aboutCard}>
-            <div style={S.aboutIcon}>🎯</div>
-            <h3 style={S.aboutTitle}>Our Mission</h3>
-            <p style={S.aboutText}>To democratize access to elite careers for African professionals by removing bias from the hiring process and providing companies with instantly verified, highly capable talent pools.</p>
-          </div>
-          <div style={S.aboutCard}>
-            <div style={S.aboutIcon}>👁️</div>
-            <h3 style={S.aboutTitle}>Our Vision</h3>
-            <p style={S.aboutText}>A world where resumes are obsolete, and a single, unified SkillBridge certificate is the global standard for proving competency and securing top-tier employment.</p>
-          </div>
-        </div>
-      </section>
-
-      {/* ── HOW IT WORKS ── */}
-      <section style={S.howSection}>
-        <div style={S.sectionLabel}>SIMPLE PROCESS</div>
-        <h2 style={S.sectionTitle}>From Sign-Up to Certificate</h2>
-        <p style={S.sectionSub}>Four steps stand between you and a verified credential that opens doors.</p>
-        <div style={S.howGrid}>
-          {[
-            {step:"01", icon:"📋", title:"Create Profile", desc:"Fill in your details, upload your CV, and pick your target role."},
-            {step:"02", icon:"🤖", title:"AI Interview", desc:"Face 3 expertly crafted questions testing IQ, teamwork, and leadership."},
-            {step:"03", icon:"📊", title:"Instant Scoring", desc:"Our AI assessor scores your answers against a rigorous 90% baseline."},
-            {step:"04", icon:"🏅", title:"Get Certified", desc:"Download your official certificate and get discovered by top employers."},
-          ].map((item, i) => (
-            <div key={i} className="step-card" style={S.howCard}>
-              <div style={S.howStep}>{item.step}</div>
-              <div style={S.howIcon}>{item.icon}</div>
-              <h4 style={S.howTitle}>{item.title}</h4>
-              <p style={S.howDesc}>{item.desc}</p>
-              {i < 3 && <div style={S.howConnector}>→</div>}
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* ── STATS ── */}
-      <section style={S.statsSection}>
-        <div style={S.statsGrid}>
-          {[
-            {num:"10,000+", label:"Professionals Placed", sub:"Across leading tech hubs"},
-            {num:"90%", label:"Pass Mark Baseline", sub:"Only the best qualify"},
-            {num:"3", label:"Targeted Questions", sub:"IQ · Team · Leadership"},
-            {num:"AI", label:"Powered Scoring", sub:"Instant, unbiased results"},
-          ].map((s,i)=>(
-            <div key={i} style={S.statCard}>
-              <div style={S.statNum}>{s.num}</div>
-              <div style={S.statCardLabel}>{s.label}</div>
-              <div style={S.statCardSub}>{s.sub}</div>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* ── TESTIMONIALS ── */}
-      <section style={S.testimonialsSection}>
-        <div style={S.sectionLabel}>SUCCESS STORIES</div>
-        <h2 style={S.sectionTitle}>Don't Just Take Our Word For It</h2>
-        <div style={S.testimonialsGrid}>
-          {[
-            {quote: "SkillBridge bypassed the noise of 1,000 resumes. We hired three verified candidates in a week who hit the ground running.", author: "Sarah Okafor", role: "HR Director, FinTech Africa"},
-            {quote: "The AI interview was the most intense 15 minutes of my life, but it proved I had the skills. Got hired 2 days after certification.", author: "David E.", role: "Certified Data Analyst"},
-            {quote: "Knowing candidates have already passed a 90% strict baseline for IQ, Leadership, and Teamwork saves us months of screening.", author: "Kconect Inc", role: "Hiring Partner"}
-          ].map((t,i) => (
-            <div key={i} style={S.testimonialCard}>
-              <div style={S.testimonialQuote}>"{t.quote}"</div>
-              <div style={S.testimonialAuthor}>
-                <div style={S.testimonialAvatar}>{t.author[0]}</div>
-                <div>
-                  <div style={S.testimonialName}>{t.author}</div>
-                  <div style={S.testimonialRole}>{t.role}</div>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      <FAQSection />
-
-
-      {/* ── CTA BANNER ── */}
-      <section style={S.ctaBanner}>
-        <div style={S.ctaOrb1}/>
-        <div style={S.ctaOrb2}/>
-        <div style={S.ctaInner}>
-          <div style={S.sectionLabel}>READY TO BEGIN?</div>
-          <h2 style={{...S.sectionTitle, color:"#fff", marginBottom:12}}>Your Certificate Is 3 Questions Away.</h2>
-          <p style={{...S.sectionSub, color:"rgba(255,255,255,0.6)", marginBottom:36}}>Join the growing network of certified African professionals.</p>
-          <div style={S.heroCTARow}>
-            <button className="cta-btn-hover" style={S.heroCtaPrimary} onClick={onApplicant}>Get Certified Now →</button>
-            <button className="cta-btn-hover" style={{...S.heroCtaSecondary, borderColor:"rgba(255,255,255,0.3)", color:"#fff"}} onClick={onCompany}>Hire Verified Talent</button>
-          </div>
-        </div>
-      </section>
-
         </div>
       </main>
+
+      {/* ─── LIGHT SECTION: PARTNERS TO BEFORE FOOTER ─── */}
+      <div className="relative z-20 w-full bg-[#f5efe4] text-slate-900 rounded-t-[40px] shadow-[0_-12px_40px_rgba(0,0,0,0.06)] overflow-hidden">
+        {/* ── PARTNERS ── */}
+        <section style={{...S.partnersSection, borderBottom:"1px solid rgba(15,23,42,0.08)"}} className="py-20">
+          <div style={{...S.partnersLabel, color:"rgba(15,23,42,0.4)"}}>TRUSTED BY LEADING BUSINESSES ACROSS AFRICA</div>
+          <Skiper52 />
+        </section>
+
+        {/* ── PORTALS ── */}
+        <section style={S.portalSection}>
+          <div style={S.sectionLabel}>TWO POWERFUL PORTALS</div>
+          <h2 style={{...S.sectionTitle, color:"#0f172a"}}>One Platform. Two Paths.</h2>
+          <p style={{...S.sectionSub, color:"rgba(15,23,42,0.65)"}}>Whether you're proving your skills or finding exceptional talent, SkillBridge has you covered.</p>
+
+          <div style={S.newPortalGrid}>
+            {/* Applicant */}
+            <div className="portal-card-hover border border-slate-200/80 shadow-md hover:shadow-lg transition-all duration-300" style={S.newPortalCardLight} onClick={onApplicant}>
+              <div style={S.newPortalCardTop}>
+                <div style={S.newPortalCardIconWrap}><span style={{fontSize:32}}>🎯</span></div>
+                <div style={S.newPortalBadgeLight}>APPLICANT PORTAL</div>
+              </div>
+              <h3 style={{...S.newPortalCardTitle, color:"#0f172a"}}>Apply & Get Certified</h3>
+              <p style={{...S.newPortalCardSub, color:"rgba(15,23,42,0.7)"}}>Stop sending resumes into the void. Complete an intense, role-specific AI interview and earn a verified certificate that employers trust.</p>
+              <div style={S.newPortalSteps}>
+                {["Fill your profile & upload CV","Answer 3 AI-driven interview questions","Score 80%+ to earn your certificate"].map((s,i)=>(
+                  <div key={i} style={S.newPortalStep}>
+                    <div style={{...S.newPortalStepNum, background:"rgba(124,58,237,0.1)", color:"#7c3aed"}}>{i+1}</div>
+                    <span style={{fontSize:14, color:"#334155"}}>{s}</span>
+                  </div>
+                ))}
+              </div>
+              <button style={S.newPortalBtnDark}>Start My Application →</button>
+            </div>
+
+            {/* Company */}
+            <div className="portal-card-hover border border-purple-500/20 shadow-xl transition-all duration-300" style={S.newPortalCardDark} onClick={onCompany}>
+              <div style={S.newPortalCardTop}>
+                <div style={{...S.newPortalCardIconWrap, background:"rgba(212,168,60,0.15)", border:"1px solid rgba(212,168,60,0.3)"}}><span style={{fontSize:32}}>💼</span></div>
+                <div style={S.newPortalBadgeDark}>COMPANY DASHBOARD</div>
+              </div>
+              <h3 style={{...S.newPortalCardTitle, color:"#fff"}}>Search Verified Talent</h3>
+              <p style={{...S.newPortalCardSub, color:"#8fa3be"}}>Skip endless CV screening. Browse a curated pool of pre-tested, AI-scored candidates — complete with competency breakdowns and direct contact info.</p>
+              <div style={S.newPortalSteps}>
+                {["Filter by role and score threshold","View AI-generated competency breakdowns","Email or call candidates instantly"].map((s,i)=>(
+                  <div key={i} style={S.newPortalStep}>
+                    <div style={{...S.newPortalStepNum, background:"#d4a83c", color:"#11203b"}}>{i+1}</div>
+                    <span style={{fontSize:14, color:"#9db3c8"}}>{s}</span>
+                  </div>
+                ))}
+              </div>
+              <button style={S.newPortalBtnGold}>Open Dashboard →</button>
+            </div>
+          </div>
+        </section>
+
+        {/* ── ABOUT & MISSION ── */}
+        <section style={S.aboutSection} className="py-16">
+          <div style={S.aboutGrid}>
+            <div className="bg-white border border-slate-200/60 p-8 rounded-2xl shadow-sm hover:shadow-md transition-all duration-300">
+              <div style={S.aboutIcon}>🌍</div>
+              <h3 style={{...S.aboutTitle, color:"#0f172a"}}>About Us</h3>
+              <p style={{...S.aboutText, color:"#475569"}}>SkillBridge by kconect is redefining how talent meets opportunity. We leverage cutting-edge AI to conduct rigorous, unbiased interviews, ensuring candidates are judged purely on merit, practical skills, and cultural fit.</p>
+            </div>
+            <div className="bg-white border border-slate-200/60 p-8 rounded-2xl shadow-sm hover:shadow-md transition-all duration-300">
+              <div style={S.aboutIcon}>🎯</div>
+              <h3 style={{...S.aboutTitle, color:"#0f172a"}}>Our Mission</h3>
+              <p style={{...S.aboutText, color:"#475569"}}>To democratize access to elite careers for African professionals by removing bias from the hiring process and providing companies with instantly verified, highly capable talent pools.</p>
+            </div>
+            <div className="bg-white border border-slate-200/60 p-8 rounded-2xl shadow-sm hover:shadow-md transition-all duration-300">
+              <div style={S.aboutIcon}>👁️</div>
+              <h3 style={{...S.aboutTitle, color:"#0f172a"}}>Our Vision</h3>
+              <p style={{...S.aboutText, color:"#475569"}}>A world where resumes are obsolete, and a single, unified SkillBridge certificate is the global standard for proving competency and securing top-tier employment.</p>
+            </div>
+          </div>
+        </section>
+
+        {/* ── HOW IT WORKS ── */}
+        <section style={S.howSection}>
+          <div style={S.sectionLabel}>SIMPLE PROCESS</div>
+          <h2 style={{...S.sectionTitle, color:"#0f172a"}}>From Sign-Up to Certificate</h2>
+          <p style={{...S.sectionSub, color:"rgba(15,23,42,0.65)"}}>Four steps stand between you and a verified credential that opens doors.</p>
+          <div style={S.howGrid}>
+            {[
+              {step:"01", icon:"📋", title:"Create Profile", desc:"Fill in your details, upload your CV, and pick your target role."},
+              {step:"02", icon:"🤖", title:"AI Interview", desc:"Face 3 expertly crafted questions testing IQ, teamwork, and leadership."},
+              {step:"03", icon:"📊", title:"Instant Scoring", desc:"Our AI assessor scores your answers against a rigorous 80% baseline."},
+              {step:"04", icon:"🏅", title:"Get Certified", desc:"Download your official certificate and get discovered by top employers."},
+            ].map((item, i) => (
+              <div key={i} className="step-card bg-white border border-slate-200/50 p-6 rounded-2xl shadow-sm hover:shadow-md transition-all duration-300" style={{...S.howCard, background:"none", border:"none", boxShadow:"none"}}>
+                <div style={{...S.howStep, color:"rgba(168,85,247,0.15)"}}>{item.step}</div>
+                <div style={S.howIcon}>{item.icon}</div>
+                <h4 style={{...S.howTitle, color:"#0f172a"}}>{item.title}</h4>
+                <p style={{...S.howDesc, color:"#475569"}}>{item.desc}</p>
+                {i < 3 && <div style={{...S.howConnector, color:"rgba(168,85,247,0.3)"}}>→</div>}
+              </div>
+            ))}
+          </div>
+        </section>
+
+        {/* ── STATS ── */}
+        <section style={S.statsSection}>
+          <div style={S.statsGrid} className="border border-slate-200/80 rounded-2xl overflow-hidden shadow-sm">
+            {[
+              {num:"10,000+", label:"Professionals Placed", sub:"Across leading tech hubs"},
+              {num:"80%", label:"Pass Mark Baseline", sub:"Only the best qualify"},
+              {num:"3", label:"Targeted Questions", sub:"IQ · Team · Leadership"},
+              {num:"AI", label:"Powered Scoring", sub:"Instant, unbiased results"},
+            ].map((s,i)=>(
+              <div key={i} style={{...S.statCard, background:"#ffffff", border:"none"}} className="border-r border-b border-slate-200/60 last:border-none p-8">
+                <div style={{...S.statNum, background:"linear-gradient(135deg,#7c3aed,#4f46e5)"}} className="bg-clip-text text-transparent font-bold">{s.num}</div>
+                <div style={{...S.statCardLabel, color:"#0f172a"}}>{s.label}</div>
+                <div style={{...S.statCardSub, color:"#64748b"}}>{s.sub}</div>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        {/* ── TESTIMONIALS ── */}
+        <section style={S.testimonialsSection}>
+          <div style={S.sectionLabel}>SUCCESS STORIES</div>
+          <h2 style={{...S.sectionTitle, color:"#0f172a"}}>Don't Just Take Our Word For It</h2>
+          <div style={S.testimonialsGrid}>
+            {[
+              {quote: "SkillBridge bypassed the noise of 1,000 resumes. We hired three verified candidates in a week who hit the ground running.", author: "Sarah Okafor", role: "HR Director, FinTech Africa"},
+              {quote: "The AI interview was the most intense 15 minutes of my life, but it proved I had the skills. Got hired 2 days after certification.", author: "David E.", role: "Certified Data Analyst"},
+              {quote: "Knowing candidates have already passed an 80% strict baseline for IQ, Leadership, and Teamwork saves us months of screening.", author: "Kconect Inc", role: "Hiring Partner"}
+            ].map((t,i) => (
+              <div key={i} style={S.testimonialCard} className="border border-slate-200/80 hover:shadow-md transition-shadow duration-300">
+                <div style={S.testimonialQuote} className="text-slate-600">"{t.quote}"</div>
+                <div style={S.testimonialAuthor}>
+                  <div style={S.testimonialAvatar} className="bg-purple-100 text-purple-700">{t.author[0]}</div>
+                  <div>
+                    <div style={{...S.testimonialName, color:"#0f172a"}}>{t.author}</div>
+                    <div style={{...S.testimonialRole, color:"#64748b"}}>{t.role}</div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <FAQSection />
+
+        {/* ── CTA BANNER ── */}
+        <section style={{...S.ctaBanner, background:"linear-gradient(135deg, #f5efff, #faf5ff)", border:"1px solid rgba(168,85,247,0.12)"}} className="my-16 rounded-2xl max-w-5xl mx-auto shadow-sm">
+          <div style={S.ctaInner}>
+            <div style={S.sectionLabel}>READY TO BEGIN?</div>
+            <h2 style={{...S.sectionTitle, color:"#0f172a", marginBottom:12}}>Your Certificate Is 3 Questions Away.</h2>
+            <p style={{...S.sectionSub, color:"#475569", marginBottom:36}}>Join the growing network of certified African professionals.</p>
+            <div style={S.heroCTARow}>
+              <button className="cta-btn-hover" style={{...S.heroCtaPrimary, background:"linear-gradient(135deg, #a855f7, #6366f1)", color:"#fff", boxShadow:"0 0 20px rgba(168,85,247,0.3)"}} onClick={onApplicant}>Get Certified Now →</button>
+              <button className="cta-btn-hover" style={{...S.heroCtaSecondary, borderColor:"rgba(15,23,42,0.2)", color:"#0f172a"}} onClick={onCompany}>Hire Verified Talent</button>
+            </div>
+          </div>
+        </section>
+      </div>
       <CinematicFooter />
     </div>
   );
